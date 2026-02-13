@@ -60,7 +60,7 @@ protected:
     /**
      *  Render stuff.
      */
-    virtual void OnRender(RenderEventArgs& e);
+    virtual void OnRender();
 
     /**
      * Invoked by the registered window when a key is pressed

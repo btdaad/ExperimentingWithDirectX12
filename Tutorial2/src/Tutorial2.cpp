@@ -22,6 +22,13 @@ using namespace Microsoft::WRL;
 
 using namespace DirectX;
 
+struct Mat
+{
+    XMMATRIX ModelMatrix;
+    XMMATRIX ModelViewMatrix;
+    XMMATRIX InverseTransposeModelViewMatrix;
+    XMMATRIX ModelViewProjectionMatrix;
+};
 
 // Clamp a value between a min and max range.
 template<typename T>
@@ -62,9 +69,31 @@ Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync
     : super(name, width, height, vSync)
     , m_ScissorRect(CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX))
     , m_Viewport(CD3DX12_VIEWPORT(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)))
-    , m_FoV(45.0)
+    , m_Forward(0)
+    , m_Backward(0)
+    , m_Left(0)
+    , m_Right(0)
+    , m_Up(0)
+    , m_Down(0)
+    , m_Pitch(0)
+    , m_Yaw(0)
     , m_ContentLoaded(false)
 {
+    XMVECTOR cameraPos = XMVectorSet(0, 0, -10, 1);
+    XMVECTOR cameraTarget = XMVectorSet(0, 0, 0, 1);
+    XMVECTOR cameraUp = XMVectorSet(0, 1, 0, 0);
+
+    m_Camera.set_LookAt(cameraPos, cameraTarget, cameraUp);
+
+    m_pAlignedCameraData = (CameraData*)_aligned_malloc(sizeof(CameraData), 16);
+
+    m_pAlignedCameraData->m_InitialCamPos = m_Camera.get_Translation();
+    m_pAlignedCameraData->m_InitialCamRot = m_Camera.get_Rotation();
+}
+
+Tutorial2::~Tutorial2()
+{
+    _aligned_free(m_pAlignedCameraData);
 }
 
 void Tutorial2::UpdateBufferResource(
@@ -276,6 +305,10 @@ void Tutorial2::OnResize(ResizeEventArgs& e)
     {
         super::OnResize(e);
 
+        float aspectRatio = e.Width / (float)e.Height;
+        //XMMatrixPerspectiveFovLH(XMConvertToRadians(m_FoV), aspectRatio, 0.1f, 100.0f);
+        m_Camera.set_Projection(45.0f, aspectRatio, 0.1f, 100.0f);
+
         m_Viewport = CD3DX12_VIEWPORT(0.0f, 0.0f,
             static_cast<float>(e.Width), static_cast<float>(e.Height));
 
@@ -310,18 +343,23 @@ void Tutorial2::OnUpdate(UpdateEventArgs& e)
         totalTime = 0.0;
     }
 
-    // Update the model matrix.
-    m_ModelMatrix = XMMatrixIdentity();
+    // Update the camera.
+    float speedMultipler = 4.0f;
 
-    // Update the view matrix.
-    const XMVECTOR eyePosition = XMVectorSet(0, 0, -10, 1);
-    const XMVECTOR focusPoint = XMVectorSet(0, 0, 0, 1);
-    const XMVECTOR upDirection = XMVectorSet(0, 1, 0, 0);
-    m_ViewMatrix = XMMatrixLookAtLH(eyePosition, focusPoint, upDirection);
+    XMVECTOR cameraTranslate = XMVectorSet(m_Right - m_Left, 0.0f, m_Forward - m_Backward, 1.0f) * e.ElapsedTime *
+        static_cast<float>(e.ElapsedTime);
+    XMVECTOR cameraPan =
+        XMVectorSet(0.0f, m_Up - m_Down, 0.0f, 1.0f) * speedMultipler * static_cast<float>(e.ElapsedTime);
+    m_Camera.Translate(cameraTranslate, Space::Local);
+    m_Camera.Translate(cameraPan, Space::Local);
 
-    // Update the projection matrix.
-    float aspectRatio = GetClientWidth() / static_cast<float>(GetClientHeight());
-    m_ProjectionMatrix = XMMatrixPerspectiveFovLH(XMConvertToRadians(m_FoV), aspectRatio, 0.1f, 100.0f);
+    XMVECTOR cameraRotation =
+        XMQuaternionRotationRollPitchYaw(XMConvertToRadians(m_Pitch), XMConvertToRadians(m_Yaw), 0.0f);
+    m_Camera.set_Rotation(cameraRotation);
+
+    XMMATRIX viewMatrix = m_Camera.get_ViewMatrix();
+
+    OnRender();
 }
 
 // Transition a resource
@@ -349,9 +387,17 @@ void Tutorial2::ClearDepth(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> co
     commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depth, 0, 0, nullptr);
 }
 
-void Tutorial2::OnRender(RenderEventArgs& e)
+void XM_CALLCONV ComputeMatrices(FXMMATRIX model, CXMMATRIX view, CXMMATRIX viewProjection, Mat& mat)
 {
-    super::OnRender(e);
+    mat.ModelMatrix = model;
+    mat.ModelViewMatrix = model * view;
+    mat.InverseTransposeModelViewMatrix = XMMatrixTranspose(XMMatrixInverse(nullptr, mat.ModelViewMatrix));
+    mat.ModelViewProjectionMatrix = model * viewProjection;
+}
+
+void Tutorial2::OnRender()
+{
+    super::OnRender();
 
     auto commandQueue = Application::Get().GetCommandQueue(D3D12_COMMAND_LIST_TYPE_DIRECT);
     auto commandList = commandQueue->GetCommandList();
@@ -384,10 +430,20 @@ void Tutorial2::OnRender(RenderEventArgs& e)
 
     commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
 
-    // Update the MVP matrix
-    XMMATRIX mvpMatrix = XMMatrixMultiply(m_ModelMatrix, m_ViewMatrix);
-    mvpMatrix = XMMatrixMultiply(mvpMatrix, m_ProjectionMatrix);
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMatrix, 0);
+    // Draw the cube.
+    XMMATRIX translationMatrix = XMMatrixIdentity();
+    XMMATRIX rotationMatrix = XMMatrixIdentity();
+    XMMATRIX scaleMatrix = XMMatrixScaling(1.0f, 2.0f, 1.0f);
+    XMMATRIX worldMatrix = scaleMatrix * rotationMatrix * translationMatrix;
+    XMMATRIX viewMatrix = m_Camera.get_ViewMatrix();
+    XMMATRIX viewProjectionMatrix = viewMatrix * m_Camera.get_ProjectionMatrix();
+    
+    Mat matrices;
+	ComputeMatrices(worldMatrix, viewMatrix, viewProjectionMatrix, matrices);
+    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelMatrix, 0);
+    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelViewMatrix, 0);
+    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.InverseTransposeModelViewMatrix, 0);
+    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelViewProjectionMatrix, 0);
 
     commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);
 
@@ -428,10 +484,14 @@ void Tutorial2::OnKeyPressed(KeyEventArgs& e)
 
 void Tutorial2::OnMouseWheel(MouseWheelEventArgs& e)
 {
-    m_FoV -= e.WheelDelta;
-    m_FoV = clamp(m_FoV, 12.0f, 90.0f);
+    auto fov = m_Camera.get_FoV();
+
+    fov -= e.WheelDelta;
+    fov = clamp(fov, 12.0f, 90.0f);
+
+    m_Camera.set_FoV(fov);
 
     char buffer[256];
-    sprintf_s(buffer, "FoV: %f\n", m_FoV);
+    sprintf_s(buffer, "FoV: %f\n", fov);
     OutputDebugStringA(buffer);
 }
