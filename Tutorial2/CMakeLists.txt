@@ -1,11 +1,13 @@
 cmake_minimum_required( VERSION 3.10.1 ) # Latest version of CMake when this file was created.
 
 set( HEADER_FILES
+    inc/Camera.h
     inc/Tutorial2.h
 )
 
 set( SRC_FILES
     src/main.cpp
+    src/Camera.cpp
     src/Tutorial2.cpp
 )
 

@@ -177,17 +177,6 @@ void Window::OnUpdate(UpdateEventArgs&)
     }
 }
 
-void Window::OnRender(RenderEventArgs&)
-{
-    m_RenderClock.Tick();
-
-    if (auto pGame = m_pGame.lock())
-    {
-        RenderEventArgs renderEventArgs(m_RenderClock.GetDeltaSeconds(), m_RenderClock.GetTotalSeconds());
-        pGame->OnRender(renderEventArgs);
-    }
-}
-
 void Window::OnKeyPressed(KeyEventArgs& e)
 {
     if (auto pGame = m_pGame.lock())

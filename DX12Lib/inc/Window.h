@@ -105,7 +105,6 @@ protected:
 
     // Update and Draw can only be called by the application.
     virtual void OnUpdate(UpdateEventArgs& e);
-    virtual void OnRender(RenderEventArgs& e);
 
     // A keyboard key was pressed
     virtual void OnKeyPressed(KeyEventArgs& e);

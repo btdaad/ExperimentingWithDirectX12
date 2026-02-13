@@ -429,9 +429,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
             // Delta time will be filled in by the Window.
             UpdateEventArgs updateEventArgs(0.0f, 0.0f);
             pWindow->OnUpdate(updateEventArgs);
-            RenderEventArgs renderEventArgs(0.0f, 0.0f);
-            // Delta time will be filled in by the Window.
-            pWindow->OnRender(renderEventArgs);
         }
         break;
         case WM_SYSKEYDOWN:

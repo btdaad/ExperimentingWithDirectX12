@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Camera.h>
 #include <Game.h>
 #include <Window.h>
 
@@ -11,6 +12,8 @@ public:
     using super = Game;
 
     Tutorial2(const std::wstring& name, int width, int height, bool vSync = false);
+    virtual ~Tutorial2();
+
     /**
      *  Load content required for the demo.
      */
@@ -29,7 +32,7 @@ protected:
     /**
      *  Render stuff.
      */
-    virtual void OnRender(RenderEventArgs& e) override;
+    virtual void OnRender() override;
 
     /**
      * Invoked by the registered window when a key is pressed
@@ -92,11 +95,24 @@ private:
     D3D12_VIEWPORT m_Viewport;
     D3D12_RECT m_ScissorRect;
 
-    float m_FoV;
+	Camera m_Camera;
+    struct alignas(16) CameraData
+    {
+        DirectX::XMVECTOR m_InitialCamPos;
+        DirectX::XMVECTOR m_InitialCamRot;
+    };
+	CameraData* m_pAlignedCameraData;
 
-    DirectX::XMMATRIX m_ModelMatrix;
-    DirectX::XMMATRIX m_ViewMatrix;
-    DirectX::XMMATRIX m_ProjectionMatrix;
+    // Camera controller
+    float m_Forward;
+    float m_Backward;
+	float m_Left;
+	float m_Right;
+	float m_Up;
+	float m_Down;
+
+    float m_Pitch;
+	float m_Yaw;
 
     bool m_ContentLoaded;
 };
