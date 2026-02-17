@@ -40,6 +40,10 @@ protected:
      */
     virtual void OnKeyPressed(KeyEventArgs& e) override;
 
+    virtual void OnKeyReleased(KeyEventArgs& e) override;
+
+    virtual void OnMouseMoved(MouseMotionEventArgs& e);
+
     /**
      * Invoked when the mouse wheel is scrolled while the registered window has focus.
      */
@@ -113,6 +117,9 @@ private:
 
     float m_Pitch;
 	float m_Yaw;
+
+    int32_t m_PreviousMouseX;
+    int32_t m_PreviousMouseY;
 
     bool m_ContentLoaded;
 };

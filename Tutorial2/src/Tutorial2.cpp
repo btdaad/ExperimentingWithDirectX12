@@ -11,7 +11,7 @@ using namespace Microsoft::WRL;
 #include <d3dx12.h>
 #include <d3dcompiler.h>
 
-#include <algorithm> // For std::min and std::max.
+#include <algorithm> // For std::min, std::max, and std::clamp.
 #if defined(min)
 #undef min
 #endif
@@ -31,11 +31,11 @@ struct Mat
 };
 
 // Clamp a value between a min and max range.
-template<typename T>
-constexpr const T& clamp(const T& val, const T& min, const T& max)
-{
-    return val < min ? min : val > max ? max : val;
-}
+//template<typename T>
+//constexpr const T& clamp(const T& val, const T& min, const T& max)
+//{
+//    return val < min ? min : val > max ? max : val;
+//}
 
 // Vertex data for a colored cube.
 struct VertexPosColor
@@ -77,6 +77,8 @@ Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync
     , m_Down(0)
     , m_Pitch(0)
     , m_Yaw(0)
+    , m_PreviousMouseX(0)
+    , m_PreviousMouseY(0)
     , m_ContentLoaded(false)
 {
     XMVECTOR cameraPos = XMVectorSet(0, 0, -10, 1);
@@ -207,9 +209,9 @@ bool Tutorial2::LoadContent()
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
 
-    // A single 32-bit constant root parameter that is used by the vertex shader.
+    // 4 32-bit constant root parameter that are used by the vertex shader.
     CD3DX12_ROOT_PARAMETER1 rootParameters[1];
-    rootParameters[0].InitAsConstants(sizeof(XMMATRIX) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+    rootParameters[0].InitAsConstants(sizeof(XMMATRIX)/4 * 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
     rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
@@ -349,8 +351,8 @@ void Tutorial2::OnUpdate(UpdateEventArgs& e)
     // Update the camera.
     float speedMultipler = 4.0f;
 
-    XMVECTOR cameraTranslate = XMVectorSet(m_Right - m_Left, 0.0f, m_Forward - m_Backward, 1.0f) * e.ElapsedTime *
-        static_cast<float>(e.ElapsedTime);
+    XMVECTOR cameraTranslate = XMVectorSet(m_Right - m_Left, 0.0f, m_Forward - m_Backward, 1.0f) * speedMultipler *
+                               static_cast<float>(e.ElapsedTime);
     XMVECTOR cameraPan =
         XMVectorSet(0.0f, m_Up - m_Down, 0.0f, 1.0f) * speedMultipler * static_cast<float>(e.ElapsedTime);
     m_Camera.Translate(cameraTranslate, Space::Local);
@@ -359,8 +361,6 @@ void Tutorial2::OnUpdate(UpdateEventArgs& e)
     XMVECTOR cameraRotation =
         XMQuaternionRotationRollPitchYaw(XMConvertToRadians(m_Pitch), XMConvertToRadians(m_Yaw), 0.0f);
     m_Camera.set_Rotation(cameraRotation);
-
-    XMMATRIX viewMatrix = m_Camera.get_ViewMatrix();
 
     OnRender();
 }
@@ -446,10 +446,10 @@ void Tutorial2::OnRender()
 
     // Upload the four matrices into the same root parameter but different offsets (in 32-bit values).
     // Each XMMATRIX is 16 floats (16 32-bit values).
-    //commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelMatrix, 0);
-    //commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelViewMatrix, 16);
-    //commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.InverseTransposeModelViewMatrix, 32);
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelViewProjectionMatrix, 0);
+    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, reinterpret_cast<const uint32_t*>(&matrices.ModelMatrix), 0);
+    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, reinterpret_cast<const uint32_t*>(&matrices.ModelViewMatrix), 16);
+    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, reinterpret_cast<const uint32_t*>(&matrices.InverseTransposeModelViewMatrix), 32);
+    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, reinterpret_cast<const uint32_t*>(&matrices.ModelViewProjectionMatrix), 48);
 
     commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);
 
@@ -485,6 +485,85 @@ void Tutorial2::OnKeyPressed(KeyEventArgs& e)
     case KeyCode::V:
         m_pWindow->ToggleVSync();
         break;
+
+    // Move in the scene
+    case KeyCode::R:
+        // Reset camera transform
+        m_Camera.set_Translation(m_pAlignedCameraData->m_InitialCamPos);
+        m_Camera.set_Rotation(m_pAlignedCameraData->m_InitialCamRot);
+        m_Pitch = 0.0f;
+        m_Yaw = 0.0f;
+        break;
+    case KeyCode::Up:
+    case KeyCode::W:
+        m_Forward = 1.0f;
+        break;
+    case KeyCode::Left:
+    case KeyCode::A:
+        m_Left = 1.0f;
+        break;
+    case KeyCode::Down:
+    case KeyCode::S:
+        m_Backward = 1.0f;
+        break;
+    case KeyCode::Right:
+    case KeyCode::D:
+        m_Right = 1.0f;
+        break;
+    case KeyCode::Q:
+        m_Down = 1.0f;
+        break;
+    case KeyCode::E:
+        m_Up = 1.0f;
+        break;
+    }
+}
+
+void Tutorial2::OnKeyReleased(KeyEventArgs& e)
+{
+    switch (e.Key)
+    {
+    case KeyCode::Up:
+    case KeyCode::W:
+        m_Forward = 0.0f;
+        break;
+    case KeyCode::Left:
+    case KeyCode::A:
+        m_Left = 0.0f;
+        break;
+    case KeyCode::Down:
+    case KeyCode::S:
+        m_Backward = 0.0f;
+        break;
+    case KeyCode::Right:
+    case KeyCode::D:
+        m_Right = 0.0f;
+        break;
+    case KeyCode::Q:
+        m_Down = 0.0f;
+        break;
+    case KeyCode::E:
+        m_Up = 0.0f;
+        break;
+    }
+}
+
+void Tutorial2::OnMouseMoved(MouseMotionEventArgs& e)
+{
+    const float mouseSpeed = 0.1f;
+
+    e.RelX = e.X - m_PreviousMouseX;
+    e.RelY = e.Y - m_PreviousMouseY;
+
+    m_PreviousMouseX = e.X;
+    m_PreviousMouseY = e.Y;
+    
+    if (e.LeftButton)
+    {
+        m_Pitch -= e.RelY * mouseSpeed;
+        m_Pitch = std::clamp(m_Pitch, -90.0f, 90.0f);
+
+        m_Yaw -= e.RelX * mouseSpeed;
     }
 }
 
@@ -493,7 +572,7 @@ void Tutorial2::OnMouseWheel(MouseWheelEventArgs& e)
     auto fov = m_Camera.get_FoV();
 
     fov -= e.WheelDelta;
-    fov = clamp(fov, 12.0f, 90.0f);
+    fov = std::clamp(fov, 12.0f, 90.0f);
 
     m_Camera.set_FoV(fov);
 
