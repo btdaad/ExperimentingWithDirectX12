@@ -85,6 +85,9 @@ Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync
 
     m_Camera.set_LookAt(cameraPos, cameraTarget, cameraUp);
 
+    float aspectRatio = width / static_cast<float>(height);
+    m_Camera.set_Projection(45.0f, aspectRatio, 0.1f, 100.0f);
+
     m_pAlignedCameraData = (CameraData*)_aligned_malloc(sizeof(CameraData), 16);
 
     m_pAlignedCameraData->m_InitialCamPos = m_Camera.get_Translation();
@@ -433,16 +436,19 @@ void Tutorial2::OnRender()
     // Draw the cube.
     XMMATRIX translationMatrix = XMMatrixIdentity();
     XMMATRIX rotationMatrix = XMMatrixIdentity();
-    XMMATRIX scaleMatrix = XMMatrixScaling(1.0f, 2.0f, 1.0f);
+    XMMATRIX scaleMatrix = XMMatrixIdentity();
     XMMATRIX worldMatrix = scaleMatrix * rotationMatrix * translationMatrix;
     XMMATRIX viewMatrix = m_Camera.get_ViewMatrix();
     XMMATRIX viewProjectionMatrix = viewMatrix * m_Camera.get_ProjectionMatrix();
     
     Mat matrices;
 	ComputeMatrices(worldMatrix, viewMatrix, viewProjectionMatrix, matrices);
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelMatrix, 0);
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelViewMatrix, 0);
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.InverseTransposeModelViewMatrix, 0);
+
+    // Upload the four matrices into the same root parameter but different offsets (in 32-bit values).
+    // Each XMMATRIX is 16 floats (16 32-bit values).
+    //commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelMatrix, 0);
+    //commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelViewMatrix, 16);
+    //commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.InverseTransposeModelViewMatrix, 32);
     commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &matrices.ModelViewProjectionMatrix, 0);
 
     commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);
