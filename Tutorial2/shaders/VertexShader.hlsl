@@ -6,9 +6,10 @@ cbuffer Mat : register(b0)
     matrix ModelViewProjectionMatrix;
 };                       
 
-struct VertexPosColor
+struct VertexPosNormColor
 {
     float3 Position : POSITION;
+    float3 Normal : NORMAL;
     float3 Color : COLOR;
 };
 
@@ -19,7 +20,7 @@ struct VertexShaderOutput
     float4 Position : SV_Position;
 };
 
-VertexShaderOutput main(VertexPosColor IN)
+VertexShaderOutput main(VertexPosNormColor IN)
 {
     VertexShaderOutput OUT;
 

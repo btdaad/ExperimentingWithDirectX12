@@ -23,32 +23,34 @@ using namespace Microsoft::WRL;
 using namespace DirectX;
 
 // Vertex data for a colored cube.
-struct VertexPosColor
+struct VertexPosNormColor
 {
     XMFLOAT3 Position;
+    XMFLOAT3 Normal;
     XMFLOAT3 Color;
 };
 
-static VertexPosColor g_Vertices[8] = {
-    { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f) }, // 0
-    { XMFLOAT3(-1.0f,  1.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // 1
-    { XMFLOAT3(1.0f,  1.0f, -1.0f), XMFLOAT3(1.0f, 1.0f, 0.0f) }, // 2
-    { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) }, // 3
-    { XMFLOAT3(-1.0f, -1.0f,  1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) }, // 4
-    { XMFLOAT3(-1.0f,  1.0f,  1.0f), XMFLOAT3(0.0f, 1.0f, 1.0f) }, // 5
-    { XMFLOAT3(1.0f,  1.0f,  1.0f), XMFLOAT3(1.0f, 1.0f, 1.0f) }, // 6
-    { XMFLOAT3(1.0f, -1.0f,  1.0f), XMFLOAT3(1.0f, 0.0f, 1.0f) }  // 7
+// Cube centered at 0.0
+XMFLOAT3 p[8] = { { 1.0, 1.0, -1.0 }, { 1.0, 1.0, 1.0 },   { 1.0, -1.0, 1.0 },   { 1.0, -1.0, -1.0 },
+                    { -1.0, 1.0, 1.0 }, { -1.0, 1.0, -1.0 }, { -1.0, -1.0, -1.0 }, { -1.0, -1.0, 1.0 } };
+// 6 face normals
+XMFLOAT3 n[6] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+
+XMFLOAT3 c[8] = { { 1.0f, 1.0f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f },
+                  { 0.0f, 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
+
+// Indices for the vertex positions.
+uint16_t i[24] = {
+    0, 1, 2, 3,  // +X
+    4, 5, 6, 7,  // -X
+    4, 1, 0, 5,  // +Y
+    2, 7, 6, 3,  // -Y
+    1, 4, 7, 2,  // +Z
+    5, 0, 3, 6   // -Z
 };
 
-static WORD g_Indicies[36] =
-{
-    0, 1, 2, 0, 2, 3,
-    4, 6, 5, 4, 7, 6,
-    4, 5, 1, 4, 1, 0,
-    3, 2, 6, 3, 6, 7,
-    1, 5, 6, 1, 6, 2,
-    4, 0, 3, 4, 3, 7
-};
+VertexPosNormColor g_Vertices[24];
+std::vector<uint16_t> g_Indices;
 
 Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync)
     : super(name, width, height, vSync)
@@ -130,33 +132,59 @@ void Tutorial2::UpdateBufferResource(
 }
 
 
+void CreateCube()
+{
+	for (uint16_t f = 0; f < 6; ++f) // for each face of the cube
+    {
+        for (uint16_t v = 0; v < 4; ++v)
+        {
+            uint16_t vertexIndex = f * 4 + v;
+            g_Vertices[vertexIndex].Position = p[i[vertexIndex]];
+            g_Vertices[vertexIndex].Normal = n[f];
+            g_Vertices[vertexIndex].Color = c[i[vertexIndex]];
+        }
+
+        uint16_t baseIndex = f * 4;
+
+        g_Indices.emplace_back(baseIndex + 0);
+        g_Indices.emplace_back(baseIndex + 1);
+        g_Indices.emplace_back(baseIndex + 2);
+
+        g_Indices.emplace_back(baseIndex + 2);
+        g_Indices.emplace_back(baseIndex + 3);
+        g_Indices.emplace_back(baseIndex + 0);
+    }
+}
+
 bool Tutorial2::LoadContent()
 {
     auto device = Application::Get().GetDevice();
     auto commandQueue = Application::Get().GetCommandQueue(D3D12_COMMAND_LIST_TYPE_COPY);
     auto commandList = commandQueue->GetCommandList();
 
+    CreateCube();
+
     // Upload vertex buffer data.
     ComPtr<ID3D12Resource> intermediateVertexBuffer;
     UpdateBufferResource(commandList,
         &m_VertexBuffer, &intermediateVertexBuffer,
-        _countof(g_Vertices), sizeof(VertexPosColor), g_Vertices);
+        _countof(g_Vertices), sizeof(VertexPosNormColor), g_Vertices);
 
     // Create the vertex buffer view.
     m_VertexBufferView.BufferLocation = m_VertexBuffer->GetGPUVirtualAddress();
     m_VertexBufferView.SizeInBytes = sizeof(g_Vertices);
-    m_VertexBufferView.StrideInBytes = sizeof(VertexPosColor);
+    m_VertexBufferView.StrideInBytes = sizeof(VertexPosNormColor);
 
     // Upload index buffer data.
     ComPtr<ID3D12Resource> intermediateIndexBuffer;
     UpdateBufferResource(commandList,
         &m_IndexBuffer, &intermediateIndexBuffer,
-        _countof(g_Indicies), sizeof(WORD), g_Indicies);
+        g_Indices.size(), sizeof(uint16_t), g_Indices.data());
 
     // Create index buffer view.
     m_IndexBufferView.BufferLocation = m_IndexBuffer->GetGPUVirtualAddress();
     m_IndexBufferView.Format = DXGI_FORMAT_R16_UINT;
-    m_IndexBufferView.SizeInBytes = sizeof(g_Indicies);
+    m_IndexBufferView.SizeInBytes = static_cast<UINT>(g_Indices.size() * sizeof(uint16_t));
 
     // Create descriptor heaps.
     {
@@ -210,6 +238,7 @@ bool Tutorial2::LoadContent()
     // Create the vertex input layout
     D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
@@ -486,7 +515,7 @@ void Tutorial2::OnRender()
 
     ComputeAndUploadCubeMatrices(commandList);
 
-    commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);
+    commandList->DrawIndexedInstanced(g_Indices.size(), 1, 0, 0, 0);
 
     // Present
     {
