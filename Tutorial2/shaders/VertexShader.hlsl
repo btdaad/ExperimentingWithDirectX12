@@ -1,12 +1,10 @@
-struct Mat
+cbuffer Mat : register(b0)
 {
     matrix ModelMatrix;
     matrix ModelViewMatrix;
     matrix InverseTransposeModelViewMatrix;
     matrix ModelViewProjectionMatrix;
-};
-
-ConstantBuffer<Mat> MatCB : register(b0);
+};                       
 
 struct VertexPosColor
 {
@@ -25,8 +23,8 @@ VertexShaderOutput main(VertexPosColor IN)
 {
     VertexShaderOutput OUT;
 
-    OUT.Position = mul(MatCB.ModelViewProjectionMatrix, float4(IN.Position, 1.0f));
-    OUT.PositionVS = mul(MatCB.ModelViewMatrix, float4(IN.Position, 1.0f));
+    OUT.Position = mul(ModelViewProjectionMatrix, float4(IN.Position, 1.0f));
+    OUT.PositionVS = mul(ModelViewMatrix, float4(IN.Position, 1.0f));
     OUT.Color = float4(IN.Color, 1.0f);
 
     return OUT;
