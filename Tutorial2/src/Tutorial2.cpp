@@ -22,21 +22,6 @@ using namespace Microsoft::WRL;
 
 using namespace DirectX;
 
-struct Mat
-{
-    XMMATRIX ModelMatrix;
-    XMMATRIX ModelViewMatrix;
-    XMMATRIX InverseTransposeModelViewMatrix;
-    XMMATRIX ModelViewProjectionMatrix;
-};
-
-// Clamp a value between a min and max range.
-//template<typename T>
-//constexpr const T& clamp(const T& val, const T& min, const T& max)
-//{
-//    return val < min ? min : val > max ? max : val;
-//}
-
 // Vertex data for a colored cube.
 struct VertexPosColor
 {
@@ -69,6 +54,7 @@ Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync
     : super(name, width, height, vSync)
     , m_ScissorRect(CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX))
     , m_Viewport(CD3DX12_VIEWPORT(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)))
+	, m_Matrices{}
     , m_Forward(0)
     , m_Backward(0)
     , m_Left(0)
@@ -172,12 +158,46 @@ bool Tutorial2::LoadContent()
     m_IndexBufferView.Format = DXGI_FORMAT_R16_UINT;
     m_IndexBufferView.SizeInBytes = sizeof(g_Indicies);
 
-    // Create the descriptor heap for the depth-stencil view.
-    D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
-    dsvHeapDesc.NumDescriptors = 1;
-    dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    ThrowIfFailed(device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_DSVHeap)));
+    // Create descriptor heaps.
+    {
+        // Create the descriptor heap for the depth-stencil view.
+        D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
+        dsvHeapDesc.NumDescriptors = 1;
+        dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        ThrowIfFailed(device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_DSVHeap)));
+
+        D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
+        cbvHeapDesc.NumDescriptors = 1;
+        cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        ThrowIfFailed(device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&m_CBVHeap)));
+    }
+
+    // Create the constant buffer.
+    {
+        const UINT constantBufferSize = sizeof(Mat); // is already 256-byte aligned
+
+        // Allocate memory space on the upload heap
+        ThrowIfFailed(device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_ConstantBuffer)));
+
+        // Describe and create the constant buffer view (CBV).
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+        cbvDesc.BufferLocation = m_ConstantBuffer->GetGPUVirtualAddress();
+        cbvDesc.SizeInBytes = constantBufferSize;
+        device->CreateConstantBufferView(&cbvDesc, m_CBVHeap->GetCPUDescriptorHandleForHeapStart());
+
+        // Map the constant buffer to the virutal address space of the app to be able to initialize it using CPU memory map
+		CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU.
+		ThrowIfFailed(m_ConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_pCBVDataBegin)));
+        memcpy(m_pCBVDataBegin, &m_Matrices, sizeof(m_Matrices));
+    }
 
     // Load the vertex shader.
     ComPtr<ID3DBlob> vertexShaderBlob;
@@ -194,64 +214,72 @@ bool Tutorial2::LoadContent()
     };
 
     // Create a root signature.
-    D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
-    featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
-    if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
     {
-        featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
+        featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        {
+            featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        }
+
+        // Allow input layout and deny unnecessary access to certain pipeline stages.
+        D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+
+        // CBV root parameter that is used by the vertex shader.
+        CD3DX12_ROOT_PARAMETER1 rootParameters[1];
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_VERTEX);
+
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
+        rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
+
+        // Serialize the root signature.
+        ComPtr<ID3DBlob> rootSignatureBlob;
+        ComPtr<ID3DBlob> errorBlob;
+        ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDescription,
+            featureData.HighestVersion, &rootSignatureBlob, &errorBlob));
+        // Create the root signature.
+        ThrowIfFailed(device->CreateRootSignature(0, rootSignatureBlob->GetBufferPointer(),
+            rootSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&m_RootSignature)));
     }
 
-    // Allow input layout and deny unnecessary access to certain pipeline stages.
-    D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
-        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
-
-    // 4 32-bit constant root parameter that are used by the vertex shader.
-    CD3DX12_ROOT_PARAMETER1 rootParameters[1];
-    rootParameters[0].InitAsConstants(sizeof(XMMATRIX)/4 * 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
-
-    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
-    rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
-
-    // Serialize the root signature.
-    ComPtr<ID3DBlob> rootSignatureBlob;
-    ComPtr<ID3DBlob> errorBlob;
-    ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDescription,
-        featureData.HighestVersion, &rootSignatureBlob, &errorBlob));
-    // Create the root signature.
-    ThrowIfFailed(device->CreateRootSignature(0, rootSignatureBlob->GetBufferPointer(),
-        rootSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&m_RootSignature)));
-
-    struct PipelineStateStream
+	// Create the pipeline state.
     {
-        CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE pRootSignature;
-        CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT InputLayout;
-        CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY PrimitiveTopologyType;
-        CD3DX12_PIPELINE_STATE_STREAM_VS VS;
-        CD3DX12_PIPELINE_STATE_STREAM_PS PS;
-        CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT DSVFormat;
-        CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
-    } pipelineStateStream;
+        struct PipelineStateStream
+        {
+            CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE pRootSignature;
+            CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT InputLayout;
+            CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY PrimitiveTopologyType;
+            CD3DX12_PIPELINE_STATE_STREAM_VS VS;
+            CD3DX12_PIPELINE_STATE_STREAM_PS PS;
+            CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT DSVFormat;
+            CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
+        } pipelineStateStream;
 
-    D3D12_RT_FORMAT_ARRAY rtvFormats = {};
-    rtvFormats.NumRenderTargets = 1;
-    rtvFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        D3D12_RT_FORMAT_ARRAY rtvFormats = {};
+        rtvFormats.NumRenderTargets = 1;
+        rtvFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 
-    pipelineStateStream.pRootSignature = m_RootSignature.Get();
-    pipelineStateStream.InputLayout = { inputLayout, _countof(inputLayout) };
-    pipelineStateStream.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    pipelineStateStream.VS = CD3DX12_SHADER_BYTECODE(vertexShaderBlob.Get());
-    pipelineStateStream.PS = CD3DX12_SHADER_BYTECODE(pixelShaderBlob.Get());
-    pipelineStateStream.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    pipelineStateStream.RTVFormats = rtvFormats;
+        pipelineStateStream.pRootSignature = m_RootSignature.Get();
+        pipelineStateStream.InputLayout = { inputLayout, _countof(inputLayout) };
+        pipelineStateStream.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pipelineStateStream.VS = CD3DX12_SHADER_BYTECODE(vertexShaderBlob.Get());
+        pipelineStateStream.PS = CD3DX12_SHADER_BYTECODE(pixelShaderBlob.Get());
+        pipelineStateStream.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+        pipelineStateStream.RTVFormats = rtvFormats;
 
-    D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = {
-        sizeof(PipelineStateStream), &pipelineStateStream
-    };
-    ThrowIfFailed(device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_PipelineState)));
+        D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = {
+            sizeof(PipelineStateStream), &pipelineStateStream
+        };
+        ThrowIfFailed(device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_PipelineState)));
+    }
 
     auto fenceValue = commandQueue->ExecuteCommandList(commandList);
     commandQueue->WaitForFenceValue(fenceValue);
@@ -398,6 +426,23 @@ void XM_CALLCONV ComputeMatrices(FXMMATRIX model, CXMMATRIX view, CXMMATRIX view
     mat.ModelViewProjectionMatrix = model * viewProjection;
 }
 
+void Tutorial2::ComputeAndUploadCubeMatrices(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList)
+{
+    // Draw the cube.
+    XMMATRIX translationMatrix = XMMatrixIdentity();
+    XMMATRIX rotationMatrix = XMMatrixIdentity();
+    XMMATRIX scaleMatrix = XMMatrixIdentity();
+    XMMATRIX worldMatrix = scaleMatrix * rotationMatrix * translationMatrix;
+    XMMATRIX viewMatrix = m_Camera.get_ViewMatrix();
+    XMMATRIX viewProjectionMatrix = viewMatrix * m_Camera.get_ProjectionMatrix();
+
+    // Update the constant buffer
+    ComputeMatrices(worldMatrix, viewMatrix, viewProjectionMatrix, m_Matrices);
+
+    // Copy constant buffer data on the upload heap
+	memcpy(m_pCBVDataBegin, &m_Matrices, sizeof(m_Matrices));
+}
+
 void Tutorial2::OnRender()
 {
     super::OnRender();
@@ -424,32 +469,22 @@ void Tutorial2::OnRender()
     commandList->SetPipelineState(m_PipelineState.Get());
     commandList->SetGraphicsRootSignature(m_RootSignature.Get());
 
+    // Change currentlty bound descriptor heaps. 
+    ID3D12DescriptorHeap* descHeaps[] = { m_CBVHeap.Get() };
+	commandList->SetDescriptorHeaps(_countof(descHeaps), descHeaps);
+    // Set a descriptor table within the graphics root signature
+    commandList->SetGraphicsRootDescriptorTable(0, m_CBVHeap->GetGPUDescriptorHandleForHeapStart());
+
+    commandList->RSSetViewports(1, &m_Viewport);
+    commandList->RSSetScissorRects(1, &m_ScissorRect);
+    
+    commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->IASetVertexBuffers(0, 1, &m_VertexBufferView);
     commandList->IASetIndexBuffer(&m_IndexBufferView);
 
-    commandList->RSSetViewports(1, &m_Viewport);
-    commandList->RSSetScissorRects(1, &m_ScissorRect);
-
-    commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-
-    // Draw the cube.
-    XMMATRIX translationMatrix = XMMatrixIdentity();
-    XMMATRIX rotationMatrix = XMMatrixIdentity();
-    XMMATRIX scaleMatrix = XMMatrixIdentity();
-    XMMATRIX worldMatrix = scaleMatrix * rotationMatrix * translationMatrix;
-    XMMATRIX viewMatrix = m_Camera.get_ViewMatrix();
-    XMMATRIX viewProjectionMatrix = viewMatrix * m_Camera.get_ProjectionMatrix();
-    
-    Mat matrices;
-	ComputeMatrices(worldMatrix, viewMatrix, viewProjectionMatrix, matrices);
-
-    // Upload the four matrices into the same root parameter but different offsets (in 32-bit values).
-    // Each XMMATRIX is 16 floats (16 32-bit values).
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, reinterpret_cast<const uint32_t*>(&matrices.ModelMatrix), 0);
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, reinterpret_cast<const uint32_t*>(&matrices.ModelViewMatrix), 16);
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, reinterpret_cast<const uint32_t*>(&matrices.InverseTransposeModelViewMatrix), 32);
-    commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, reinterpret_cast<const uint32_t*>(&matrices.ModelViewProjectionMatrix), 48);
+    ComputeAndUploadCubeMatrices(commandList);
 
     commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);
 

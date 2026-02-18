@@ -6,6 +6,17 @@
 
 #include <DirectXMath.h>
 
+using namespace DirectX;
+
+struct Mat
+{
+    XMMATRIX ModelMatrix;
+    XMMATRIX ModelViewMatrix;
+    XMMATRIX InverseTransposeModelViewMatrix;
+    XMMATRIX ModelViewProjectionMatrix;
+};
+
+
 class Tutorial2 : public Game
 {
 public:
@@ -75,7 +86,10 @@ private:
 
     // Resize the depth buffer to match the size of the client area.
     void ResizeDepthBuffer(int width, int height);
-    
+
+	// Compute and upload matrices for the cube.
+    void ComputeAndUploadCubeMatrices(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList);
+
     uint64_t m_FenceValues[Window::BufferCount] = {};
 
     // Vertex buffer for the cube.
@@ -84,11 +98,16 @@ private:
     // Index buffer for the cube.
     Microsoft::WRL::ComPtr<ID3D12Resource> m_IndexBuffer;
     D3D12_INDEX_BUFFER_VIEW m_IndexBufferView;
+    // Constant buffer for the matrices
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_ConstantBuffer;
+	void* m_pCBVDataBegin; // the starting address where the constant buffer will be mapped (from the upload heap to the virtual address space of the app).
 
     // Depth buffer.
     Microsoft::WRL::ComPtr<ID3D12Resource> m_DepthBuffer;
     // Descriptor heap for depth buffer.
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_DSVHeap;
+    // Descriptor heap for CBV
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_CBVHeap;
 
     // Root signature
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_RootSignature;
@@ -100,6 +119,7 @@ private:
     D3D12_RECT m_ScissorRect;
 
 	Camera m_Camera;
+	Mat m_Matrices;
     struct alignas(16) CameraData
     {
         DirectX::XMVECTOR m_InitialCamPos;
