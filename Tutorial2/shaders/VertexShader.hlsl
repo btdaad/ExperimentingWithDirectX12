@@ -4,13 +4,17 @@ cbuffer Mat : register(b0)
     matrix ModelViewMatrix;
     matrix InverseTransposeModelViewMatrix;
     matrix ModelViewProjectionMatrix;
-};                       
+};
+
+cbuffer Color : register(b1)
+{
+    float3 Albedo;
+};
 
 struct VertexPosNormColor
 {
     float3 Position : POSITION;
     float3 Normal : NORMAL;
-    float3 Color : COLOR;
 };
 
 struct VertexShaderOutput
@@ -26,7 +30,7 @@ VertexShaderOutput main(VertexPosNormColor IN)
 
     OUT.Position = mul(ModelViewProjectionMatrix, float4(IN.Position, 1.0f));
     OUT.PositionVS = mul(ModelViewMatrix, float4(IN.Position, 1.0f));
-    OUT.Color = float4(IN.Color, 1.0f);
+    OUT.Color = float4(Albedo, 1.0f);
 
     return OUT;
 }
