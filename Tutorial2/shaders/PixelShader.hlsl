@@ -27,6 +27,17 @@ cbuffer Material : register(b2)
 
 static const float PI = 3.14159265359;
 
+// (https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/)
+float3 ACESFilm(float3 x)
+{
+    float a = 2.51f;
+    float b = 0.03f;
+    float c = 2.43f;
+    float d = 0.59f;
+    float e = 0.14f;
+    return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+}
+
 // GGX / Trowbridge-Reitz normal distribution function (NDF) (https://learnopengl.com/PBR/Theory)
 // Approximates the relative surface area of microfacets exactly aliggned to the halfway vector h.
 float ThrowbridgeReitzNDF(float NdotH, float roughness)
@@ -111,6 +122,11 @@ float4 main( PixelShaderInput IN ) : SV_Target
     float3 radiance = LightColor * LightIntensity;
         
     color *= radiance;
+    
+    color = ACESFilm(color);
+    
+    // Gamma correction
+    color = pow(color, 1.0f / 2.2f);
         
     return float4(color, 1.0f);
 }
