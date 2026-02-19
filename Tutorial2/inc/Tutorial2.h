@@ -12,10 +12,15 @@ struct Mat
 {
     XMMATRIX ModelMatrix;
     XMMATRIX ModelViewMatrix;
-    XMMATRIX InverseTransposeModelViewMatrix;
+    XMMATRIX InverseTransposeModelMatrix;
     XMMATRIX ModelViewProjectionMatrix;
 };
 
+struct CameraPositionData
+{
+    XMVECTOR CameraPos;
+    float _padding;
+};
 
 class Tutorial2 : public Game
 {
@@ -100,7 +105,7 @@ private:
     D3D12_INDEX_BUFFER_VIEW m_IndexBufferView;
     // Constant buffer for the matrices
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_ConstantBuffer;
-	void* m_pCBVDataBegin; // the starting address where the constant buffer will be mapped (from the upload heap to the virtual address space of the app).
+    uint8_t* m_pCBVDataBegin; // the starting address where the constant buffer will be mapped (from the upload heap to the virtual address space of the app).
 
     // Depth buffer.
     Microsoft::WRL::ComPtr<ID3D12Resource> m_DepthBuffer;
@@ -120,6 +125,7 @@ private:
 
 	Camera m_Camera;
 	Mat m_Matrices;
+	CameraPositionData m_CameraPositionData;
     struct alignas(16) CameraData
     {
         DirectX::XMVECTOR m_InitialCamPos;
