@@ -23,7 +23,7 @@ using namespace Microsoft::WRL;
 using namespace DirectX;
 
 // Vertex data for the cube.
-struct VertexPosNormColor
+struct VertexPosNorm
 {
     XMFLOAT3 Position;
     XMFLOAT3 Normal;
@@ -45,15 +45,33 @@ uint16_t i[24] = {
     5, 0, 3, 6   // -Z
 };
 
-VertexPosNormColor g_Vertices[24];
+VertexPosNorm g_Vertices[24];
 std::vector<uint16_t> g_Indices;
-XMFLOAT3 g_CubeColor = { 0.8, 0.6, 0.2 };
+
+struct DirectLight
+{
+    XMFLOAT3 LightDirection;
+    float _padding;
+    XMFLOAT3 LightColor;
+    float LightIntensity;
+};
+DirectLight g_DirLight;
+
+struct Material
+{
+    XMFLOAT3 BaseColor;
+    float Roughness;
+    float Metallic;
+	XMFLOAT3 _padding; // Padding to make the structure 16-byte aligned.
+};
+Material g_CubeMat;
 
 Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync)
     : super(name, width, height, vSync)
     , m_ScissorRect(CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX))
     , m_Viewport(CD3DX12_VIEWPORT(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)))
 	, m_Matrices{}
+    , m_CameraPositionData{}
     , m_Forward(0)
     , m_Backward(0)
     , m_Left(0)
@@ -79,6 +97,14 @@ Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync
 
     m_pAlignedCameraData->m_InitialCamPos = m_Camera.get_Translation();
     m_pAlignedCameraData->m_InitialCamRot = m_Camera.get_Rotation();
+
+    g_CubeMat.BaseColor = { 0.8, 0.6, 0.2 };
+	g_CubeMat.Roughness = 0.5f;
+	g_CubeMat.Metallic = 0.0f;
+
+	g_DirLight.LightDirection = { 0.0f, -1.0f, 1.0f };
+	g_DirLight.LightColor = { 1.0f, 1.0f, 1.0f };
+	g_DirLight.LightIntensity = 1.0f;
 }
 
 Tutorial2::~Tutorial2()
@@ -164,12 +190,12 @@ bool Tutorial2::LoadContent()
     ComPtr<ID3D12Resource> intermediateVertexBuffer;
     UpdateBufferResource(commandList,
         &m_VertexBuffer, &intermediateVertexBuffer,
-        _countof(g_Vertices), sizeof(VertexPosNormColor), g_Vertices);
+        _countof(g_Vertices), sizeof(VertexPosNorm), g_Vertices);
 
     // Create the vertex buffer view.
     m_VertexBufferView.BufferLocation = m_VertexBuffer->GetGPUVirtualAddress();
     m_VertexBufferView.SizeInBytes = sizeof(g_Vertices);
-    m_VertexBufferView.StrideInBytes = sizeof(VertexPosNormColor);
+    m_VertexBufferView.StrideInBytes = sizeof(VertexPosNorm);
 
     // Upload index buffer data.
     ComPtr<ID3D12Resource> intermediateIndexBuffer;
@@ -200,7 +226,8 @@ bool Tutorial2::LoadContent()
 
     // Create the constant buffer.
     {
-        const UINT constantBufferSize = sizeof(Mat); // is already 256-byte aligned
+        size_t totalSize = sizeof(Mat) + sizeof(CameraPositionData);
+		const UINT constantBufferSize = static_cast<UINT>((totalSize + 255) & ~255u); // align to 256 bytes
 
         // Allocate memory space on the upload heap
         ThrowIfFailed(device->CreateCommittedResource(
@@ -220,7 +247,9 @@ bool Tutorial2::LoadContent()
         // Map the constant buffer to the virutal address space of the app to be able to initialize it using CPU memory map
 		CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU.
 		ThrowIfFailed(m_ConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_pCBVDataBegin)));
+
         memcpy(m_pCBVDataBegin, &m_Matrices, sizeof(m_Matrices));
+		memcpy(m_pCBVDataBegin + sizeof(Mat), &m_CameraPositionData, sizeof(CameraPositionData));
     }
 
     // Load the vertex shader.
@@ -251,18 +280,18 @@ bool Tutorial2::LoadContent()
             D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
             D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
             D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-            D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
-            D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
 
         CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
         ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 
         // CBV root parameter that is used by the vertex shader.
-        CD3DX12_ROOT_PARAMETER1 rootParameters[2];
-        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_VERTEX);
+        CD3DX12_ROOT_PARAMETER1 rootParameters[3];
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
 
-        // Constant root parameter that is used by the vertex shader for the cube color.
-		rootParameters[1].InitAsConstants(sizeof(XMFLOAT3) / 4, 1, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+        // Constant root parameter that is used by the vertex shader for the cube material.
+        rootParameters[1].InitAsConstants(sizeof(DirectLight) / 4, 1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+        rootParameters[2].InitAsConstants(sizeof(Material) / 4, 2, 0, D3D12_SHADER_VISIBILITY_PIXEL);
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
         rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
@@ -449,7 +478,7 @@ void XM_CALLCONV ComputeMatrices(FXMMATRIX model, CXMMATRIX view, CXMMATRIX view
 {
     mat.ModelMatrix = model;
     mat.ModelViewMatrix = model * view;
-    mat.InverseTransposeModelViewMatrix = XMMatrixTranspose(XMMatrixInverse(nullptr, mat.ModelViewMatrix));
+    mat.InverseTransposeModelMatrix = XMMatrixTranspose(XMMatrixInverse(nullptr, mat.ModelMatrix));
     mat.ModelViewProjectionMatrix = model * viewProjection;
 }
 
@@ -513,7 +542,11 @@ void Tutorial2::OnRender()
 
     ComputeAndUploadCubeMatrices(commandList);
 
-	commandList->SetGraphicsRoot32BitConstants(1, sizeof(XMFLOAT3) / 4, &g_CubeColor, 0);
+	m_CameraPositionData.CameraPos = m_Camera.get_Translation();
+	memcpy(m_pCBVDataBegin + sizeof(Mat), &m_CameraPositionData, sizeof(CameraPositionData));
+
+    commandList->SetGraphicsRoot32BitConstants(1, sizeof(DirectLight) / 4, &g_DirLight, 0);
+	commandList->SetGraphicsRoot32BitConstants(2, sizeof(Material) / 4, &g_CubeMat, 0);
 
     commandList->DrawIndexedInstanced(g_Indices.size(), 1, 0, 0, 0);
 
