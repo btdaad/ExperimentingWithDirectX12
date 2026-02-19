@@ -22,12 +22,11 @@ using namespace Microsoft::WRL;
 
 using namespace DirectX;
 
-// Vertex data for a colored cube.
+// Vertex data for the cube.
 struct VertexPosNormColor
 {
     XMFLOAT3 Position;
     XMFLOAT3 Normal;
-    XMFLOAT3 Color;
 };
 
 // Cube centered at 0.0
@@ -35,9 +34,6 @@ XMFLOAT3 p[8] = { { 1.0, 1.0, -1.0 }, { 1.0, 1.0, 1.0 },   { 1.0, -1.0, 1.0 },  
                     { -1.0, 1.0, 1.0 }, { -1.0, 1.0, -1.0 }, { -1.0, -1.0, -1.0 }, { -1.0, -1.0, 1.0 } };
 // 6 face normals
 XMFLOAT3 n[6] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
-
-XMFLOAT3 c[8] = { { 1.0f, 1.0f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f },
-                  { 0.0f, 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
 
 // Indices for the vertex positions.
 uint16_t i[24] = {
@@ -51,6 +47,7 @@ uint16_t i[24] = {
 
 VertexPosNormColor g_Vertices[24];
 std::vector<uint16_t> g_Indices;
+XMFLOAT3 g_CubeColor = { 0.8, 0.6, 0.2 };
 
 Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync)
     : super(name, width, height, vSync)
@@ -141,7 +138,6 @@ void CreateCube()
             uint16_t vertexIndex = f * 4 + v;
             g_Vertices[vertexIndex].Position = p[i[vertexIndex]];
             g_Vertices[vertexIndex].Normal = n[f];
-            g_Vertices[vertexIndex].Color = c[i[vertexIndex]];
         }
 
         uint16_t baseIndex = f * 4;
@@ -239,7 +235,6 @@ bool Tutorial2::LoadContent()
     D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
     // Create a root signature.
@@ -263,8 +258,11 @@ bool Tutorial2::LoadContent()
         ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 
         // CBV root parameter that is used by the vertex shader.
-        CD3DX12_ROOT_PARAMETER1 rootParameters[1];
+        CD3DX12_ROOT_PARAMETER1 rootParameters[2];
         rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_VERTEX);
+
+        // Constant root parameter that is used by the vertex shader for the cube color.
+		rootParameters[1].InitAsConstants(sizeof(XMFLOAT3) / 4, 1, 0, D3D12_SHADER_VISIBILITY_VERTEX);
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
         rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
@@ -514,6 +512,8 @@ void Tutorial2::OnRender()
     commandList->IASetIndexBuffer(&m_IndexBufferView);
 
     ComputeAndUploadCubeMatrices(commandList);
+
+	commandList->SetGraphicsRoot32BitConstants(1, sizeof(XMFLOAT3) / 4, &g_CubeColor, 0);
 
     commandList->DrawIndexedInstanced(g_Indices.size(), 1, 0, 0, 0);
 
