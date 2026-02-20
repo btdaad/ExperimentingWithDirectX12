@@ -7,6 +7,7 @@ set( HEADER_FILES
 
 set( SRC_FILES
     src/main.cpp
+    src/tinygltf_impl.cpp
     src/Camera.cpp
     src/Tutorial2.cpp
 )
@@ -34,6 +35,13 @@ add_executable( Tutorial2 WIN32
     ${SHADER_FILES}
 )
 
+add_custom_command(
+    TARGET Tutorial2 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/extern/Resources
+        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>/Resources
+)
+
 target_include_directories( Tutorial2
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inc
 )
@@ -42,4 +50,5 @@ target_link_libraries( Tutorial2
     DX12Lib
     D3DCompiler.lib
     Shlwapi.lib
+    extern
 )

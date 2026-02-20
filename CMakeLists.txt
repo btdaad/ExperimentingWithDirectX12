@@ -9,8 +9,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin) # Output directory f
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin) # Output directory for executables (.EXE)
 
 project( ExperimentingWithDirectX12 LANGUAGES CXX )
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory( DX12Lib )
+add_subdirectory( extern )
 add_subdirectory( Tutorial1 )
 add_subdirectory( Tutorial2 )
 
