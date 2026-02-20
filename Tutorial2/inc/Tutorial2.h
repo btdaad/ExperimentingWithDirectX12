@@ -4,6 +4,8 @@
 #include <Game.h>
 #include <Window.h>
 
+#include <tinygltf/tiny_gltf.h>
+
 #include <DirectXMath.h>
 
 using namespace DirectX;
@@ -34,6 +36,8 @@ public:
      *  Load content required for the demo.
      */
     virtual bool LoadContent() override;
+
+	bool LoadGLTF(const std::string& filename);
 
     /**
      *  Unload demo specific content that was loaded in LoadContent.
@@ -148,4 +152,6 @@ private:
     int32_t m_PreviousMouseY;
 
     bool m_ContentLoaded;
+
+	tinygltf::Model m_Model;
 };
