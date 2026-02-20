@@ -38,6 +38,7 @@ public:
     virtual bool LoadContent() override;
 
 	bool LoadGLTF(const std::string& filename);
+	void LoadGLTFMesh();
 
     /**
      *  Unload demo specific content that was loaded in LoadContent.
