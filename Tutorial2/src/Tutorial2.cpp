@@ -522,9 +522,13 @@ void XM_CALLCONV ComputeMatrices(FXMMATRIX model, CXMMATRIX view, CXMMATRIX view
 
 void Tutorial2::ComputeAndUploadCubeMatrices(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList)
 {
-    // Draw the cube.
+    // Draw the object.
     XMMATRIX translationMatrix = XMMatrixIdentity();
-    XMMATRIX rotationMatrix = XMMatrixIdentity();
+
+    // glTF use a right-handed coordinate system, the model is rotated to be displayed correctly in DX3D12 left-handed coordinate system.
+    XMMATRIX rotationMatrix = XMMatrixRotationX(XMConvertToRadians(-90.0f));
+    rotationMatrix *= XMMatrixRotationY(XMConvertToRadians(180.0f));
+
     XMMATRIX scaleMatrix = XMMatrixIdentity();
     XMMATRIX worldMatrix = scaleMatrix * rotationMatrix * translationMatrix;
     XMMATRIX viewMatrix = m_Camera.get_ViewMatrix();
