@@ -178,12 +178,31 @@ void CreateCube()
     }
 }
 
+bool Tutorial2::LoadGLTF(const std::string& filename)
+{
+    tinygltf::TinyGLTF loader;
+    std::string err, warn;
+
+    bool success = loader.LoadASCIIFromFile(&m_Model, &err, &warn, filename);
+
+    if (!warn.empty())
+        OutputDebugStringA(("GLTF Warning: " + warn).c_str());
+
+    if (!err.empty())
+        OutputDebugStringA(("GLTF Error: " + err).c_str());
+
+    return success;
+}
+
 bool Tutorial2::LoadContent()
 {
     auto device = Application::Get().GetDevice();
     auto commandQueue = Application::Get().GetCommandQueue(D3D12_COMMAND_LIST_TYPE_COPY);
     auto commandList = commandQueue->GetCommandList();
 
+    if (!LoadGLTF("Resources/shiba/scene.gltf"))
+        return false;
+    
     CreateCube();
 
     // Upload vertex buffer data.
