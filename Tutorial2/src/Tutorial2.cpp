@@ -22,40 +22,23 @@ using namespace Microsoft::WRL;
 
 using namespace DirectX;
 
-// Vertex data for the cube.
+// Vertex data for the displayed object.
 struct VertexPosNorm
 {
     XMFLOAT3 Position;
     XMFLOAT3 Normal;
 };
+std::vector<VertexPosNorm> g_Vertices;
+std::vector<uint32_t> g_Indices;
 
-// Cube centered at 0.0
-XMFLOAT3 p[8] = { { 1.0, 1.0, -1.0 }, { 1.0, 1.0, 1.0 },   { 1.0, -1.0, 1.0 },   { 1.0, -1.0, -1.0 },
-                    { -1.0, 1.0, 1.0 }, { -1.0, 1.0, -1.0 }, { -1.0, -1.0, -1.0 }, { -1.0, -1.0, 1.0 } };
-// 6 face normals
-XMFLOAT3 n[6] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
-
-// Indices for the vertex positions.
-uint16_t i[24] = {
-    0, 1, 2, 3,  // +X
-    4, 5, 6, 7,  // -X
-    4, 1, 0, 5,  // +Y
-    2, 7, 6, 3,  // -Y
-    1, 4, 7, 2,  // +Z
-    5, 0, 3, 6   // -Z
-};
-
-VertexPosNorm g_Vertices[24];
-std::vector<uint16_t> g_Indices;
-
-struct DirectLight
+struct DirectionalLight
 {
     XMFLOAT3 LightDirection;
     float _padding;
     XMFLOAT3 LightColor;
     float LightIntensity;
 };
-DirectLight g_DirLight;
+DirectionalLight g_DirLight;
 
 struct Material
 {
@@ -93,12 +76,15 @@ Tutorial2::Tutorial2(const std::wstring& name, int width, int height, bool vSync
     float aspectRatio = width / static_cast<float>(height);
     m_Camera.set_Projection(45.0f, aspectRatio, 0.1f, 100.0f);
 
-    m_pAlignedCameraData = (CameraData*)_aligned_malloc(sizeof(CameraData), 16);
+    m_pAlignedCameraData = static_cast<CameraData*>(_aligned_malloc(sizeof(CameraData), 16));
+
+    if (!m_pAlignedCameraData)
+        throw std::bad_alloc();
 
     m_pAlignedCameraData->m_InitialCamPos = m_Camera.get_Translation();
     m_pAlignedCameraData->m_InitialCamRot = m_Camera.get_Rotation();
 
-    g_CubeMat.BaseColor = { 0.8, 0.6, 0.2 };
+    g_CubeMat.BaseColor = { 0.8f, 0.6f, 0.2f };
 	g_CubeMat.Roughness = 0.5f;
 	g_CubeMat.Metallic = 0.0f;
 
@@ -154,30 +140,6 @@ void Tutorial2::UpdateBufferResource(
     }
 }
 
-
-void CreateCube()
-{
-	for (uint16_t f = 0; f < 6; ++f) // for each face of the cube
-    {
-        for (uint16_t v = 0; v < 4; ++v)
-        {
-            uint16_t vertexIndex = f * 4 + v;
-            g_Vertices[vertexIndex].Position = p[i[vertexIndex]];
-            g_Vertices[vertexIndex].Normal = n[f];
-        }
-
-        uint16_t baseIndex = f * 4;
-
-        g_Indices.emplace_back(baseIndex + 0);
-        g_Indices.emplace_back(baseIndex + 1);
-        g_Indices.emplace_back(baseIndex + 2);
-
-        g_Indices.emplace_back(baseIndex + 2);
-        g_Indices.emplace_back(baseIndex + 3);
-        g_Indices.emplace_back(baseIndex + 0);
-    }
-}
-
 bool Tutorial2::LoadGLTF(const std::string& filename)
 {
     tinygltf::TinyGLTF loader;
@@ -194,6 +156,63 @@ bool Tutorial2::LoadGLTF(const std::string& filename)
     return success;
 }
 
+void Tutorial2::LoadGLTFMesh()
+{
+    g_Vertices.clear();
+    g_Indices.clear();
+
+    for (auto& mesh : m_Model.meshes) // there can be multiple meshes in a glTF file.
+    {
+        for (auto& primitive : mesh.primitives)
+        {
+            uint32_t vertexOffset = static_cast<uint32_t>(g_Vertices.size()); // the offset is necessary to correctly index into the vertex buffer
+
+            // POSITIONS
+            auto& posAccessor = m_Model.accessors[primitive.attributes.at("POSITION")];
+            auto& posView = m_Model.bufferViews[posAccessor.bufferView];
+            const float* positions = reinterpret_cast<const float*>(
+                m_Model.buffers[posView.buffer].data.data() + posView.byteOffset + posAccessor.byteOffset);
+
+            // NORMALS
+            auto& normAccessor = m_Model.accessors[primitive.attributes.at("NORMAL")];
+            auto& normView = m_Model.bufferViews[normAccessor.bufferView];
+            const float* normals = reinterpret_cast<const float*>(
+                m_Model.buffers[normView.buffer].data.data() + normView.byteOffset + normAccessor.byteOffset);
+
+            // Fill vertices
+            for (size_t i = 0; i < posAccessor.count; ++i)
+            {
+                VertexPosNorm v;
+                v.Position = { positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] };
+                v.Normal = { normals[i * 3],   normals[i * 3 + 1],   normals[i * 3 + 2] };
+                g_Vertices.push_back(v);
+            }
+            
+			// INDICES
+            auto& idxAccessor = m_Model.accessors[primitive.indices];
+            auto& idxView = m_Model.bufferViews[idxAccessor.bufferView];
+            const unsigned char* rawIndices = m_Model.buffers[idxView.buffer].data.data()
+                + idxView.byteOffset + idxAccessor.byteOffset;
+
+            // Fill indices (shifted by vertexOffset)
+            {
+                if (idxAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
+                {
+                    const uint16_t* indices = reinterpret_cast<const uint16_t*>(rawIndices);
+                    for (size_t i = 0; i < idxAccessor.count; ++i)
+                        g_Indices.push_back(static_cast<uint32_t>(indices[i]) + vertexOffset);
+                }
+                else if (idxAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
+                {
+                    const uint32_t* indices = reinterpret_cast<const uint32_t*>(rawIndices);
+                    for (size_t i = 0; i < idxAccessor.count; ++i)
+                        g_Indices.push_back(indices[i] + vertexOffset);
+                }
+            }
+        }
+    }
+}
+
 bool Tutorial2::LoadContent()
 {
     auto device = Application::Get().GetDevice();
@@ -202,30 +221,30 @@ bool Tutorial2::LoadContent()
 
     if (!LoadGLTF("Resources/shiba/scene.gltf"))
         return false;
-    
-    CreateCube();
+
+    LoadGLTFMesh();
 
     // Upload vertex buffer data.
     ComPtr<ID3D12Resource> intermediateVertexBuffer;
     UpdateBufferResource(commandList,
         &m_VertexBuffer, &intermediateVertexBuffer,
-        _countof(g_Vertices), sizeof(VertexPosNorm), g_Vertices);
+        g_Vertices.size(), sizeof(VertexPosNorm), g_Vertices.data());
 
     // Create the vertex buffer view.
     m_VertexBufferView.BufferLocation = m_VertexBuffer->GetGPUVirtualAddress();
-    m_VertexBufferView.SizeInBytes = sizeof(g_Vertices);
+    m_VertexBufferView.SizeInBytes = g_Vertices.size() * sizeof(VertexPosNorm);
     m_VertexBufferView.StrideInBytes = sizeof(VertexPosNorm);
 
     // Upload index buffer data.
     ComPtr<ID3D12Resource> intermediateIndexBuffer;
     UpdateBufferResource(commandList,
         &m_IndexBuffer, &intermediateIndexBuffer,
-        g_Indices.size(), sizeof(uint16_t), g_Indices.data());
+        g_Indices.size(), sizeof(uint32_t), g_Indices.data());
 
     // Create index buffer view.
     m_IndexBufferView.BufferLocation = m_IndexBuffer->GetGPUVirtualAddress();
-    m_IndexBufferView.Format = DXGI_FORMAT_R16_UINT;
-    m_IndexBufferView.SizeInBytes = static_cast<UINT>(g_Indices.size() * sizeof(uint16_t));
+    m_IndexBufferView.Format = DXGI_FORMAT_R32_UINT;
+    m_IndexBufferView.SizeInBytes = g_Indices.size() * sizeof(uint32_t);
 
     // Create descriptor heaps.
     {
@@ -309,7 +328,7 @@ bool Tutorial2::LoadContent()
         rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
 
         // Constant root parameter that is used by the vertex shader for the cube material.
-        rootParameters[1].InitAsConstants(sizeof(DirectLight) / 4, 1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+        rootParameters[1].InitAsConstants(sizeof(DirectionalLight) / 4, 1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
         rootParameters[2].InitAsConstants(sizeof(Material) / 4, 2, 0, D3D12_SHADER_VISIBILITY_PIXEL);
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
@@ -564,7 +583,7 @@ void Tutorial2::OnRender()
 	m_CameraPositionData.CameraPos = m_Camera.get_Translation();
 	memcpy(m_pCBVDataBegin + sizeof(Mat), &m_CameraPositionData, sizeof(CameraPositionData));
 
-    commandList->SetGraphicsRoot32BitConstants(1, sizeof(DirectLight) / 4, &g_DirLight, 0);
+    commandList->SetGraphicsRoot32BitConstants(1, sizeof(DirectionalLight) / 4, &g_DirLight, 0);
 	commandList->SetGraphicsRoot32BitConstants(2, sizeof(Material) / 4, &g_CubeMat, 0);
 
     commandList->DrawIndexedInstanced(g_Indices.size(), 1, 0, 0, 0);
@@ -611,18 +630,22 @@ void Tutorial2::OnKeyPressed(KeyEventArgs& e)
         m_Yaw = 0.0f;
         break;
     case KeyCode::Up:
+        [[fallthrough]];
     case KeyCode::W:
         m_Forward = 1.0f;
         break;
     case KeyCode::Left:
+        [[fallthrough]];
     case KeyCode::A:
         m_Left = 1.0f;
         break;
     case KeyCode::Down:
+        [[fallthrough]];
     case KeyCode::S:
         m_Backward = 1.0f;
         break;
     case KeyCode::Right:
+        [[fallthrough]];
     case KeyCode::D:
         m_Right = 1.0f;
         break;
@@ -640,18 +663,22 @@ void Tutorial2::OnKeyReleased(KeyEventArgs& e)
     switch (e.Key)
     {
     case KeyCode::Up:
+        [[fallthrough]];
     case KeyCode::W:
         m_Forward = 0.0f;
         break;
     case KeyCode::Left:
+        [[fallthrough]];
     case KeyCode::A:
         m_Left = 0.0f;
         break;
     case KeyCode::Down:
+        [[fallthrough]];
     case KeyCode::S:
         m_Backward = 0.0f;
         break;
     case KeyCode::Right:
+        [[fallthrough]];
     case KeyCode::D:
         m_Right = 0.0f;
         break;
