@@ -90,7 +90,7 @@ float3 BRDFDirect(float3 N, float3 V, float3 L)
     
     float D = ThrowbridgeReitzNDF(NdotH, Roughness);
     float G = GeometrySmith(NdotV, NdotL, Roughness);
-    float F = FresnelSchlick(VdotH, F0);
+    float3 F = FresnelSchlick(VdotH, F0);
     
     // Cook-Torrance microfacet specular : specular reflectance from a surface modeled as a collection of microfacets.
     float3 spec = (D * G * F) / max(4.0 * NdotV * NdotL, 1e-5);
@@ -113,7 +113,7 @@ float4 main( PixelShaderInput IN ) : SV_Target
 {
     float3 color = 0;
         
-    float3 N = normalize(IN.NormalVS);
+    float3 N = normalize(IN.NormalVS).xyz;
     float3 V = normalize(CameraPosition - IN.WorldPosVS.xyz);
     float3 L = normalize(-LightDirection);
     
