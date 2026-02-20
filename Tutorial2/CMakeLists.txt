@@ -51,4 +51,5 @@ target_link_libraries( Tutorial2
     D3DCompiler.lib
     Shlwapi.lib
     extern
+    DirectXTex
 )
