@@ -16,6 +16,10 @@ struct Mat
     XMMATRIX ModelViewMatrix;
     XMMATRIX InverseTransposeModelMatrix;
     XMMATRIX ModelViewProjectionMatrix;
+
+    // For the skybox
+    XMMATRIX ViewMatrix;
+    XMMATRIX ProjectionMatrix;
 };
 
 struct CameraPositionData
@@ -40,6 +44,7 @@ public:
 	bool LoadGLTF(const std::string& filename);
 	void LoadGLTFMesh();
     void LoadTextureFromFile(const std::wstring& fileName, Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList);
+    void LoadCubemapTexture(TexMetadata metadata, ScratchImage scratchImage);
 
     /**
      *  Unload demo specific content that was loaded in LoadContent.
@@ -159,4 +164,16 @@ private:
 
     tinygltf::Model m_Model;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_Texture;
+
+    // Skybox
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_SkyboxVertexBuffer;
+    D3D12_VERTEX_BUFFER_VIEW m_SkyboxVertexBufferView;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_SkyboxIndexBuffer;
+    D3D12_INDEX_BUFFER_VIEW m_SkyboxIndexBufferView;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_SkyboxTexture;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_SkyboxTextureBuffer; // upload heap
+
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> m_SkyboxRootSignature;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_SkyboxPipelineState;
 };

@@ -7,6 +7,9 @@ cbuffer SceneCB : register(b0)
 
     float3 CameraPosition;
     float _pad1; // to align to 16 bytes
+    
+    matrix ViewMatrix;
+    matrix ProjectionMatrix;
 };
 
 struct VertexPosNormTex

@@ -2,6 +2,7 @@ cmake_minimum_required( VERSION 3.10.1 ) # Latest version of CMake when this fil
 
 set( HEADER_FILES
     inc/Camera.h
+    inc/Skybox.h
     inc/Tutorial2.h
 )
 
@@ -15,6 +16,8 @@ set( SRC_FILES
 set( SHADER_FILES
     shaders/VertexShader.hlsl
     shaders/PixelShader.hlsl
+    shaders/SkyboxVS.hlsl
+    shaders/SkyboxPS.hlsl
 )
 
 source_group( "Resources\\Shaders" FILES ${SHADER_FILES} )
@@ -24,7 +27,16 @@ set_source_files_properties( shaders/VertexShader.hlsl PROPERTIES
     VS_SHADER_MODEL 5.1
 )
 
+set_source_files_properties( shaders/SkyboxVS.hlsl PROPERTIES 
+    VS_SHADER_TYPE Vertex
+    VS_SHADER_MODEL 5.1
+)
+
 set_source_files_properties( shaders/PixelShader.hlsl PROPERTIES 
+    VS_SHADER_TYPE Pixel
+    VS_SHADER_MODEL 5.1
+)
+set_source_files_properties( shaders/SkyboxPS.hlsl PROPERTIES 
     VS_SHADER_TYPE Pixel
     VS_SHADER_MODEL 5.1
 )

@@ -3,14 +3,15 @@
 #include <Application.h>
 #include <CommandQueue.h>
 #include <Helpers.h>
+#include <SkyBox.h>
 #include <Window.h>
-#include <DirectXTex.h>
 
 #include <wrl.h>
 using namespace Microsoft::WRL;
 
 #include <d3dx12.h>
 #include <d3dcompiler.h>
+#include <DirectXTex.h>
 
 #include <algorithm> // For std::min, std::max, and std::clamp.
 #if defined(min)
@@ -246,6 +247,9 @@ void Tutorial2::LoadTextureFromFile(
 
     metadata.format = MakeSRGB(metadata.format);
 
+    if (metadata.IsCubemap())
+        return LoadCubemapTexture(metadata, scratchImage);
+
     // Create the final GPU texture resource
     {
         D3D12_RESOURCE_DESC textureDesc = {};
@@ -310,6 +314,11 @@ void Tutorial2::LoadTextureFromFile(
     }
 }
 
+void Tutorial2::LoadCubemapTexture(TexMetadata metadata, ScratchImage scratchImage)
+{
+    auto device = Application::Get().GetDevice();
+}
+
 // ============================================================================
 // Load content
 // 1. Geometry buffers (vertex, index)
@@ -352,6 +361,25 @@ bool Tutorial2::LoadContent()
     m_IndexBufferView.BufferLocation = m_IndexBuffer->GetGPUVirtualAddress();
     m_IndexBufferView.Format         = DXGI_FORMAT_R32_UINT;
     m_IndexBufferView.SizeInBytes    = static_cast<UINT>(g_Indices.size() * sizeof(uint32_t));
+
+    // 1 bis. Geometry buffers (Skybox)
+	ComPtr<ID3D12Resource> intermediateSkyboxVertexBuffer;
+    UpdateBufferResource(commandList,
+        &m_SkyboxVertexBuffer, &intermediateSkyboxVertexBuffer,
+        _countof(Skybox::g_SkyboxVertices), sizeof(VertexPosNormTex), Skybox::g_SkyboxVertices);
+
+	m_SkyboxVertexBufferView.BufferLocation = m_SkyboxVertexBuffer->GetGPUVirtualAddress();
+    m_SkyboxVertexBufferView.SizeInBytes    = sizeof(Skybox::g_SkyboxVertices);
+    m_SkyboxVertexBufferView.StrideInBytes  = sizeof(Skybox::SkyboxVertex);
+
+	ComPtr<ID3D12Resource> intermediateSkyboxIndexBuffer;
+    UpdateBufferResource(commandList,
+		&m_SkyboxIndexBuffer, &intermediateSkyboxIndexBuffer,
+        _countof(Skybox::g_SkyboxIndices), sizeof(uint16_t), Skybox::g_SkyboxIndices);
+
+	m_SkyboxIndexBufferView.BufferLocation = m_SkyboxIndexBuffer->GetGPUVirtualAddress();
+	m_SkyboxIndexBufferView.Format         = DXGI_FORMAT_R16_UINT;
+	m_SkyboxIndexBufferView.SizeInBytes    = sizeof(Skybox::g_SkyboxIndices);
 
     // 2. Descriptor heaps
     // Create the descriptor heap for the depth-stencil view.
@@ -624,12 +652,16 @@ void Tutorial2::ClearDepth(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> co
 // Per-frame matrix upload
 // ============================================================================
 
-static void XM_CALLCONV ComputeMatrices(FXMMATRIX model, CXMMATRIX view, CXMMATRIX viewProjection, Mat& mat)
+static void XM_CALLCONV ComputeMatrices(FXMMATRIX model, CXMMATRIX view, CXMMATRIX projection, Mat& mat)
 {
+	CXMMATRIX viewProjection = XMMatrixMultiply(view, projection);
     mat.ModelMatrix                 = model;
     mat.ModelViewMatrix             = model * view;
     mat.InverseTransposeModelMatrix = XMMatrixTranspose(XMMatrixInverse(nullptr, mat.ModelMatrix));
     mat.ModelViewProjectionMatrix   = model * viewProjection;
+
+	mat.ViewMatrix                  = view;
+	mat.ProjectionMatrix            = projection;
 }
 
 void Tutorial2::ComputeAndUploadModelMatrices(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList)
@@ -641,10 +673,10 @@ void Tutorial2::ComputeAndUploadModelMatrices(Microsoft::WRL::ComPtr<ID3D12Graph
     XMMATRIX scaleMatrix          = XMMatrixIdentity();
     XMMATRIX worldMatrix          = scaleMatrix * rotationMatrix * translationMatrix;
     XMMATRIX viewMatrix           = m_Camera.get_ViewMatrix();
-    XMMATRIX viewProjectionMatrix = viewMatrix * m_Camera.get_ProjectionMatrix();
+	XMMATRIX projectionMatrix     = m_Camera.get_ProjectionMatrix();
 
     // Update the m_Matrices constant buffer
-    ComputeMatrices(worldMatrix, viewMatrix, viewProjectionMatrix, m_Matrices);
+    ComputeMatrices(worldMatrix, viewMatrix, projectionMatrix, m_Matrices);
     // Copy constant buffer data on the upload heap
 	memcpy(m_pCBVDataBegin, &m_Matrices, sizeof(m_Matrices));
 }
