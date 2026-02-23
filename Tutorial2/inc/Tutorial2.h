@@ -39,6 +39,7 @@ public:
 
 	bool LoadGLTF(const std::string& filename);
 	void LoadGLTFMesh();
+    void LoadTextureFromFile(const std::wstring& fileName, Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList);
 
     /**
      *  Unload demo specific content that was loaded in LoadContent.
@@ -97,27 +98,29 @@ private:
     // Resize the depth buffer to match the size of the client area.
     void ResizeDepthBuffer(int width, int height);
 
-	// Compute and upload matrices for the cube.
-    void ComputeAndUploadCubeMatrices(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList);
+	// Compute and upload matrices for the model.
+    void ComputeAndUploadModelMatrices(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList);
 
     uint64_t m_FenceValues[Window::BufferCount] = {};
 
-    // Vertex buffer for the cube.
+    // Vertex buffer for the model.
     Microsoft::WRL::ComPtr<ID3D12Resource> m_VertexBuffer;
     D3D12_VERTEX_BUFFER_VIEW m_VertexBufferView;
-    // Index buffer for the cube.
+    // Index buffer for the model.
     Microsoft::WRL::ComPtr<ID3D12Resource> m_IndexBuffer;
     D3D12_INDEX_BUFFER_VIEW m_IndexBufferView;
     // Constant buffer for the matrices
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_ConstantBuffer;
     uint8_t* m_pCBVDataBegin; // the starting address where the constant buffer will be mapped (from the upload heap to the virtual address space of the app).
-
+	// Buffer for the texture.
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_TextureBuffer;
+    
     // Depth buffer.
     Microsoft::WRL::ComPtr<ID3D12Resource> m_DepthBuffer;
     // Descriptor heap for depth buffer.
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_DSVHeap;
-    // Descriptor heap for CBV
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_CBVHeap;
+	// Descriptor heap for CBV and SRV, respectively for the matrices and the texture.
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_CBV_SRV_Heap;
 
     // Root signature
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_RootSignature;
@@ -154,5 +157,6 @@ private:
 
     bool m_ContentLoaded;
 
-	tinygltf::Model m_Model;
+    tinygltf::Model m_Model;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_Texture;
 };
