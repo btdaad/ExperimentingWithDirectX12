@@ -76,7 +76,7 @@ float3 FresnelSchlick(float VdotH, float3 F0)
     return F0 + (1.0f - F0) * pow(1.0f - VdotH, 5.0f);
 }
 
-float3 BRDFDirect(float3 N, float3 V, float3 L)
+float3 BRDFDirect(float3 N, float3 V, float3 L, float3 baseColor)
 {
     float3 H = normalize(V + L);
     
@@ -86,7 +86,7 @@ float3 BRDFDirect(float3 N, float3 V, float3 L)
     float VdotH = saturate(dot(V, H));
     
     float3 F0 = { 0.04, 0.04, 0.04 }; // default value for dielectrics
-    F0 = lerp(F0, BaseColor, Metallic);
+    F0 = lerp(F0, baseColor, Metallic);
     
     float D = ThrowbridgeReitzNDF(NdotH, Roughness);
     float G = GeometrySmith(NdotV, NdotL, Roughness);
@@ -97,7 +97,7 @@ float3 BRDFDirect(float3 N, float3 V, float3 L)
     
     // Lambertian diffuse
     float3 kd = (1.0f - F) * (1.0f - Metallic);
-    float3 diff = kd * BaseColor / PI;
+    float3 diff = kd * baseColor / PI;
     
     return (diff + spec) * NdotL;
 }
@@ -106,18 +106,23 @@ struct PixelShaderInput
 {
     float4 PositionVS : POSITION;
     float4 NormalVS : NORMAL;
+    float2 UvVS : TEXCOORD;
     float4 WorldPosVS : WORLD_POSITION;
 };
 
+Texture2D g_Texture : register(t0);
+SamplerState g_Sampler : register(s0);
+
 float4 main( PixelShaderInput IN ) : SV_Target
 {
+    float3 texSample = g_Texture.Sample(g_Sampler, IN.UvVS);
     float3 color = 0;
         
     float3 N = normalize(IN.NormalVS).xyz;
     float3 V = normalize(CameraPosition - IN.WorldPosVS.xyz);
     float3 L = normalize(-LightDirection);
     
-    color += BRDFDirect(N, V, L);
+    color += BRDFDirect(N, V, L, texSample);
         
     float3 radiance = LightColor * LightIntensity;
         

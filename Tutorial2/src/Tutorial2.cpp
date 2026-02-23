@@ -26,13 +26,13 @@ namespace fs = std::filesystem;
 using namespace DirectX;
 
 // Vertex data for the displayed object.
-struct VertexPosNorm
+struct VertexPosNormTex
 {
     XMFLOAT3 Position;
     XMFLOAT3 Normal;
 	XMFLOAT2 Uv;
 };
-std::vector<VertexPosNorm> g_Vertices;
+std::vector<VertexPosNormTex> g_Vertices;
 std::vector<uint32_t> g_Indices;
 
 struct DirectionalLight
@@ -185,7 +185,7 @@ void Tutorial2::LoadGLTFMesh()
             // Fill vertices
             for (size_t i = 0; i < posAccessor.count; ++i)
             {
-                VertexPosNorm v;
+                VertexPosNormTex v;
                 v.Position = { positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] };
                 v.Normal   = { normals[i * 3],   normals[i * 3 + 1],   normals[i * 3 + 2] };
                 v.Uv       = { texcoords[i * 2],   texcoords[i * 2 + 1] };
@@ -335,12 +335,12 @@ bool Tutorial2::LoadContent()
     ComPtr<ID3D12Resource> intermediateVertexBuffer;
     UpdateBufferResource(commandList,
         &m_VertexBuffer, &intermediateVertexBuffer,
-        g_Vertices.size(), sizeof(VertexPosNorm), g_Vertices.data());
+        g_Vertices.size(), sizeof(VertexPosNormTex), g_Vertices.data());
 
     // Create the vertex buffer view.
     m_VertexBufferView.BufferLocation = m_VertexBuffer->GetGPUVirtualAddress();
-    m_VertexBufferView.SizeInBytes    = g_Vertices.size() * sizeof(VertexPosNorm);
-    m_VertexBufferView.StrideInBytes  = sizeof(VertexPosNorm);
+    m_VertexBufferView.SizeInBytes    = g_Vertices.size() * sizeof(VertexPosNormTex);
+    m_VertexBufferView.StrideInBytes  = sizeof(VertexPosNormTex);
 
     // Upload index buffer data.
     ComPtr<ID3D12Resource> intermediateIndexBuffer;
@@ -417,7 +417,7 @@ bool Tutorial2::LoadContent()
     rootParameters[3].InitAsConstants(sizeof(Material)         / 4, 2, 0, D3D12_SHADER_VISIBILITY_PIXEL);
 
     D3D12_STATIC_SAMPLER_DESC sampler = {};
-    sampler.Filter           = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
     sampler.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
     sampler.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
     sampler.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
@@ -435,7 +435,7 @@ bool Tutorial2::LoadContent()
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
-    rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 0, &sampler, rootSignatureFlags);
+    rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
 
     // Serialize the root signature.
     ComPtr<ID3DBlob> rootSignatureBlob;
