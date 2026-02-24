@@ -247,9 +247,6 @@ void Tutorial2::LoadTextureFromFile(
 
     metadata.format = MakeSRGB(metadata.format);
 
-    if (metadata.IsCubemap())
-        return LoadCubemapTexture(metadata, scratchImage);
-
     // Create the final GPU texture resource
     {
         D3D12_RESOURCE_DESC textureDesc = {};
@@ -257,7 +254,7 @@ void Tutorial2::LoadTextureFromFile(
         textureDesc.Width            = metadata.width;
         textureDesc.Height           = metadata.height;
         textureDesc.DepthOrArraySize = metadata.arraySize;
-        textureDesc.MipLevels        = 1;
+        textureDesc.MipLevels        = metadata.mipLevels;
         textureDesc.Format           = metadata.format;
         textureDesc.SampleDesc       = { 1, 0 };
         textureDesc.Flags            = D3D12_RESOURCE_FLAG_NONE;
@@ -273,7 +270,7 @@ void Tutorial2::LoadTextureFromFile(
 
     // Create the intermediate upload buffer
     {
-        const UINT64 uploadBufferSize = GetRequiredIntermediateSize(m_Texture.Get(), 0, 1);
+        const UINT64 uploadBufferSize = GetRequiredIntermediateSize(m_Texture.Get(), 0, metadata.arraySize * metadata.mipLevels);
 
         // Allocate memory space on the upload heap
         ThrowIfFailed(device->CreateCommittedResource(
@@ -309,14 +306,98 @@ void Tutorial2::LoadTextureFromFile(
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Format                  = metadata.format; // also textureDesc.format
         srvDesc.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels     = 1;
+        srvDesc.Texture2D.MipLevels     = metadata.mipLevels;
         device->CreateShaderResourceView(m_Texture.Get(), &srvDesc, srvHandle);
     }
 }
 
-void Tutorial2::LoadCubemapTexture(TexMetadata metadata, ScratchImage scratchImage)
+void Tutorial2::LoadCubemapTextureFromFile(
+    const std::wstring& fileName,
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList)
 {
     auto device = Application::Get().GetDevice();
+
+    fs::path filePath(fileName);
+    if (!fs::exists(filePath)) throw std::exception("File not found.");
+
+    TexMetadata metadata;
+    ScratchImage scratchImage;
+    ThrowIfFailed(LoadFromDDSFile(fileName.c_str(), DDS_FLAGS_FORCE_RGB, &metadata, scratchImage));
+
+    if (metadata.dimension != TEX_DIMENSION_TEXTURE2D || !metadata.IsCubemap())
+		throw std::exception("Only cubemap DDS textures are supported in the skybox.");
+
+    // Create the final GPU texture resource
+    {
+        D3D12_RESOURCE_DESC textureDesc = {};
+        textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        textureDesc.Width = metadata.width;
+        textureDesc.Height = metadata.height;
+        textureDesc.DepthOrArraySize = metadata.arraySize;
+        textureDesc.MipLevels = static_cast<UINT16>(metadata.mipLevels);
+        textureDesc.Format = metadata.format;
+        textureDesc.SampleDesc = { 1, 0 };
+        textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        ThrowIfFailed(device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &textureDesc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&m_SkyboxTexture)));
+    }
+
+    // Create the intermediate upload buffer
+    {
+        const UINT64 uploadBufferSize = GetRequiredIntermediateSize(m_SkyboxTexture.Get(), 0, metadata.arraySize * metadata.mipLevels);
+
+        // Allocate memory space on the upload heap
+        ThrowIfFailed(device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_SkyboxTextureBuffer)));
+    }
+
+    // upload all 6 faces
+    {
+        std::vector<D3D12_SUBRESOURCE_DATA> subresources;
+		for (size_t face = 0; face < metadata.arraySize; ++face)
+        {
+            for (size_t mip = 0; mip < metadata.mipLevels; ++mip)
+            {
+                const DirectX::Image* img = scratchImage.GetImage(mip, face, 0);
+                D3D12_SUBRESOURCE_DATA textureData = {};
+                textureData.pData      = img->pixels;
+                textureData.RowPitch   = img->rowPitch;
+                textureData.SlicePitch = img->slicePitch;
+
+                subresources.push_back(textureData);
+            }
+        }
+
+		UpdateSubresources(commandList.Get(), m_SkyboxTexture.Get(), m_SkyboxTextureBuffer.Get(), 0, 0, static_cast<UINT>(subresources.size()), subresources.data());
+    }
+
+    // Transition to shader-readable state
+    commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_SkyboxTexture.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+
+    // Write SRV desc into slot 2 of the heap
+    {
+        UINT srvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
+            m_CBV_SRV_Heap->GetCPUDescriptorHandleForHeapStart(), 2, srvDescriptorSize);
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format                  = metadata.format;
+        srvDesc.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels     = static_cast<UINT>(metadata.mipLevels);
+        device->CreateShaderResourceView(m_SkyboxTexture.Get(), &srvDesc, srvHandle);
+    }
 }
 
 // ============================================================================
@@ -391,7 +472,7 @@ bool Tutorial2::LoadContent()
 
 	// Create the constant buffer view (CBV) and shader resource view (SRV) heap, respectively for the matrices and the texture.
     D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
-    heapDesc.NumDescriptors = 2; // slot 0 = CBV, slot 1 = SRV
+    heapDesc.NumDescriptors = 3; // slot 0 = CBV, slot 1 = model SRV, slot 2 = skybox SRV
     heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     ThrowIfFailed(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_CBV_SRV_Heap)));

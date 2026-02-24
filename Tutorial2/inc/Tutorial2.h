@@ -44,7 +44,7 @@ public:
 	bool LoadGLTF(const std::string& filename);
 	void LoadGLTFMesh();
     void LoadTextureFromFile(const std::wstring& fileName, Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList);
-    void LoadCubemapTexture(TexMetadata metadata, ScratchImage scratchImage);
+    void LoadCubemapTextureFromFile(const std::wstring& fileName, Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList);
 
     /**
      *  Unload demo specific content that was loaded in LoadContent.
