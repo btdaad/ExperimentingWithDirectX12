@@ -4,10 +4,6 @@ cbuffer SceneCB : register(b0)
     matrix ModelViewMatrix;
     matrix InverseTransposeModelMatrix;
     matrix ModelViewProjectionMatrix;
-
-    float3 CameraPosition;
-    float _pad1;
-    
     matrix ViewMatrix;
     matrix ProjectionMatrix;
 };
@@ -30,7 +26,10 @@ VertexShaderOutput main(SkyboxVertex IN)
     OUT.TexCoord = IN.Position;
 
     matrix viewNoTranslation = ViewMatrix;
-    viewNoTranslation[3] = float4(0, 0, 0, 1); // we don't want the skybox to move with the camera, so we remove the translation component of the view matrix
+    // /!\ HLSL matrices are column-major by default
+    viewNoTranslation[0][3] = 0;
+    viewNoTranslation[1][3] = 0;
+    viewNoTranslation[2][3] = 0;
 
     float4 viewPos = mul(viewNoTranslation, float4(IN.Position, 1.0));
     float4 clipPos = mul(ProjectionMatrix, viewPos);
