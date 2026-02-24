@@ -12,6 +12,7 @@ target_include_directories( extern
 set( RESOURCE_FILES 
     Resources/shiba/scene.gltf
     Resources/shiba/textures/default_baseColor.png
+    Resources/skybox/plains_sunset_4k_lod1.dds
 )
 
 source_group( "extern\\Resources" FILES ${RESOURCE_FILES} )

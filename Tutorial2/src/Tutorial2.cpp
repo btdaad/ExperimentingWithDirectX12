@@ -504,7 +504,7 @@ bool Tutorial2::LoadContent()
 
     // 4. Texture + SRV
     LoadTextureFromFile(L"Resources/shiba/textures/default_baseColor.png", commandList);
-	LoadCubemapTextureFromFile(L"Resources/skybox/plains_sunset_4k.dds", commandList);
+	LoadCubemapTextureFromFile(L"Resources/skybox/plains_sunset_4k_lod1.dds", commandList);
 
     // 5. Root signature
     D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
