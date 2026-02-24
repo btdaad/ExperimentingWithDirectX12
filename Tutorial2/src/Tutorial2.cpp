@@ -507,7 +507,6 @@ bool Tutorial2::LoadContent()
 	LoadCubemapTextureFromFile(L"Resources/skybox/plains_sunset_4k.dds", commandList);
 
     // 5. Root signature
-    // ============ Skybox root signature ===============
     D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
     featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
     if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
@@ -517,28 +516,62 @@ bool Tutorial2::LoadContent()
     ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
     ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 
-    // @rootparam 0: descriptor table [CBV] (b0) : matrices
-    // @rootparam 1: descriptor table [SRV] (t0) : cubemap
-    CD3DX12_ROOT_PARAMETER1 rootParameters[2];
-    rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_VERTEX);
-    rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);
-
-    D3D12_STATIC_SAMPLER_DESC sampler = {};
-    sampler.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    sampler.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    sampler.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    sampler.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    sampler.ComparisonFunc   = D3D12_COMPARISON_FUNC_NEVER;
-    sampler.MaxLOD           = D3D12_FLOAT32_MAX;
-    sampler.ShaderRegister   = 0;
-    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-
     // Allow input layout and deny unnecessary access to certain pipeline stages.
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
+
+    // ============ Skybox root signature ===============
+    // @rootparam 0: descriptor table [CBV] (b0) : matrices
+    // @rootparam 1: descriptor table [SRV] (t0) : cubemap
+    CD3DX12_ROOT_PARAMETER1 skyboxRootParameters[2];
+    skyboxRootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_VERTEX);
+    skyboxRootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);
+
+    D3D12_STATIC_SAMPLER_DESC skyboxSampler = {};
+    skyboxSampler.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    skyboxSampler.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    skyboxSampler.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    skyboxSampler.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    skyboxSampler.ComparisonFunc   = D3D12_COMPARISON_FUNC_NEVER;
+    skyboxSampler.MaxLOD           = D3D12_FLOAT32_MAX;
+    skyboxSampler.ShaderRegister   = 0;
+    skyboxSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC skyboxRootSignatureDescription;
+    skyboxRootSignatureDescription.Init_1_1(_countof(skyboxRootParameters), skyboxRootParameters, 1, &skyboxSampler, rootSignatureFlags);
+
+    // Serialize the root signature.
+    ComPtr<ID3DBlob> skyboxRootSignatureBlob;
+    ComPtr<ID3DBlob> skyboxErrorBlob;
+    ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&skyboxRootSignatureDescription, featureData.HighestVersion, &skyboxRootSignatureBlob, &skyboxErrorBlob));
+
+    // Create the root signature.
+    ThrowIfFailed(device->CreateRootSignature(0, skyboxRootSignatureBlob->GetBufferPointer(), skyboxRootSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&m_SkyboxRootSignature)));
+
+    // ============ Main root signature ===============
+    // @rootparam 0: descriptor table [CBV] (b0) : matrices + camera pos
+    // @rootparam 1: descriptor table [SRV] (t0) : texture
+    // @rootparam 2: constant               (b1) : directional light
+    // @rootparam 3: constant               (b2) : material
+    CD3DX12_ROOT_PARAMETER1 rootParameters[4];
+    rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+    rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParameters[2].InitAsConstants(sizeof(DirectionalLight) / 4, 1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParameters[3].InitAsConstants(sizeof(Material)         / 4, 2, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    D3D12_STATIC_SAMPLER_DESC sampler = {};
+    sampler.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    sampler.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.ComparisonFunc   = D3D12_COMPARISON_FUNC_NEVER;
+    sampler.BorderColor      = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    sampler.MaxLOD           = D3D12_FLOAT32_MAX;
+    sampler.ShaderRegister   = 0;
+    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
     rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
@@ -547,71 +580,22 @@ bool Tutorial2::LoadContent()
     ComPtr<ID3DBlob> rootSignatureBlob;
     ComPtr<ID3DBlob> errorBlob;
     ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDescription, featureData.HighestVersion, &rootSignatureBlob, &errorBlob));
-
+        
     // Create the root signature.
-    ThrowIfFailed(device->CreateRootSignature(0, rootSignatureBlob->GetBufferPointer(), rootSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&m_SkyboxRootSignature)));
-
-    // ============ Main root signature ===============
- //   D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
- //   featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
- //   if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
- //       featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
-
- //   CD3DX12_DESCRIPTOR_RANGE1 ranges[2];
- //   ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
- //   ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-
- //   // @rootparam 0: descriptor table [CBV] (b0) : matrices + camera pos
- //   // @rootparam 1: descriptor table [SRV] (t0) : texture
- //   // @rootparam 2: constant               (b1) : directional light
- //   // @rootparam 3: constant               (b2) : material
- //   CD3DX12_ROOT_PARAMETER1 rootParameters[4];
- //   rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
-	//rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);
- //   rootParameters[2].InitAsConstants(sizeof(DirectionalLight) / 4, 1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
- //   rootParameters[3].InitAsConstants(sizeof(Material)         / 4, 2, 0, D3D12_SHADER_VISIBILITY_PIXEL);
-
- //   D3D12_STATIC_SAMPLER_DESC sampler = {};
- //   sampler.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
- //   sampler.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
- //   sampler.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
- //   sampler.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
- //   sampler.ComparisonFunc   = D3D12_COMPARISON_FUNC_NEVER;
- //   sampler.BorderColor      = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
- //   sampler.MaxLOD           = D3D12_FLOAT32_MAX;
- //   sampler.ShaderRegister   = 0;
- //   sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-
- //   // Allow input layout and deny unnecessary access to certain pipeline stages.
- //   D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
- //       D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
- //       D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
- //       D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
- //       D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
-
- //   CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDescription;
- //   rootSignatureDescription.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
-
- //   // Serialize the root signature.
- //   ComPtr<ID3DBlob> rootSignatureBlob;
- //   ComPtr<ID3DBlob> errorBlob;
- //   ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDescription, featureData.HighestVersion, &rootSignatureBlob, &errorBlob));
- //       
- //   // Create the root signature.
- //   ThrowIfFailed(device->CreateRootSignature(0, rootSignatureBlob->GetBufferPointer(), rootSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&m_RootSignature)));
+    ThrowIfFailed(device->CreateRootSignature(0, rootSignatureBlob->GetBufferPointer(), rootSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&m_RootSignature)));
 
     // 6. PSO
     // ============ Skybox PSO ===============
     // Load the vertex shader.
-    ComPtr<ID3DBlob> vertexShaderBlob;
-    ThrowIfFailed(D3DReadFileToBlob(L"SkyboxVS.cso", &vertexShaderBlob));
+    ComPtr<ID3DBlob> skyboxVSBlob;
+    ThrowIfFailed(D3DReadFileToBlob(L"SkyboxVS.cso", &skyboxVSBlob));
 
     // Load the pixel shader.
-    ComPtr<ID3DBlob> pixelShaderBlob;
-    ThrowIfFailed(D3DReadFileToBlob(L"SkyboxPS.cso", &pixelShaderBlob));
+    ComPtr<ID3DBlob> skyboxPSBlob;
+    ThrowIfFailed(D3DReadFileToBlob(L"SkyboxPS.cso", &skyboxPSBlob));
 
     // Create the vertex input layout
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+    D3D12_INPUT_ELEMENT_DESC skyboxInputLayout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
@@ -636,22 +620,64 @@ bool Tutorial2::LoadContent()
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
     } skyboxPSS;
 
-    D3D12_RT_FORMAT_ARRAY rtvFormats = {};
-    rtvFormats.NumRenderTargets = 1;
-    rtvFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    D3D12_RT_FORMAT_ARRAY skyboxRtvFormats = {};
+    skyboxRtvFormats.NumRenderTargets = 1;
+    skyboxRtvFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     skyboxPSS.pRootSignature        = m_SkyboxRootSignature.Get();
-    skyboxPSS.InputLayout           = { inputLayout, _countof(inputLayout) };
+    skyboxPSS.InputLayout           = { skyboxInputLayout, _countof(skyboxInputLayout) };
     skyboxPSS.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    skyboxPSS.VS                    = CD3DX12_SHADER_BYTECODE(vertexShaderBlob.Get());
-    skyboxPSS.PS                    = CD3DX12_SHADER_BYTECODE(pixelShaderBlob.Get());
+    skyboxPSS.VS                    = CD3DX12_SHADER_BYTECODE(skyboxVSBlob.Get());
+    skyboxPSS.PS                    = CD3DX12_SHADER_BYTECODE(skyboxPSBlob.Get());
 	skyboxPSS.DS                    = depthStencilDesc;
     skyboxPSS.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
 	skyboxPSS.Rasterizer            = rasterizerDesc;
-    skyboxPSS.RTVFormats            = rtvFormats;
+    skyboxPSS.RTVFormats            = skyboxRtvFormats;
 
     D3D12_PIPELINE_STATE_STREAM_DESC skyboxPSSDesc = { sizeof(SkyboxPipelineStateStream), &skyboxPSS };
     ThrowIfFailed(device->CreatePipelineState(&skyboxPSSDesc, IID_PPV_ARGS(&m_SkyboxPipelineState)));
+
+    // ============ Main PSO ===============
+    // Load the vertex shader.
+    ComPtr<ID3DBlob> vertexShaderBlob;
+    ThrowIfFailed(D3DReadFileToBlob(L"VertexShader.cso", &vertexShaderBlob));
+
+    // Load the pixel shader.
+    ComPtr<ID3DBlob> pixelShaderBlob;
+    ThrowIfFailed(D3DReadFileToBlob(L"PixelShader.cso", &pixelShaderBlob));
+
+    // Create the vertex input layout
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    struct PipelineStateStream
+    {
+        CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE        pRootSignature;
+        CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT          InputLayout;
+        CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY    PrimitiveTopologyType;
+        CD3DX12_PIPELINE_STATE_STREAM_VS                    VS;
+        CD3DX12_PIPELINE_STATE_STREAM_PS                    PS;
+        CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT  DSVFormat;
+        CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
+    } pipelineStateStream;
+
+    D3D12_RT_FORMAT_ARRAY rtvFormats = {};
+    rtvFormats.NumRenderTargets = 1;
+    rtvFormats.RTFormats[0]     = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    pipelineStateStream.pRootSignature        = m_RootSignature.Get();
+    pipelineStateStream.InputLayout           = { inputLayout, _countof(inputLayout) };
+    pipelineStateStream.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pipelineStateStream.VS                    = CD3DX12_SHADER_BYTECODE(vertexShaderBlob.Get());
+    pipelineStateStream.PS                    = CD3DX12_SHADER_BYTECODE(pixelShaderBlob.Get());
+    pipelineStateStream.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
+    pipelineStateStream.RTVFormats            = rtvFormats;
+
+    D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
+    ThrowIfFailed(device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_PipelineState)));
 
     auto fenceValue = commandQueue->ExecuteCommandList(commandList);
     commandQueue->WaitForFenceValue(fenceValue);
@@ -660,56 +686,6 @@ bool Tutorial2::LoadContent()
 
     // Resize/Create the depth buffer.
     ResizeDepthBuffer(GetClientWidth(), GetClientHeight());
-
-    // ============ Main PSO ===============
-    //// Load the vertex shader.
-    //ComPtr<ID3DBlob> vertexShaderBlob;
-    //ThrowIfFailed(D3DReadFileToBlob(L"VertexShader.cso", &vertexShaderBlob));
-
-    //// Load the pixel shader.
-    //ComPtr<ID3DBlob> pixelShaderBlob;
-    //ThrowIfFailed(D3DReadFileToBlob(L"PixelShader.cso", &pixelShaderBlob));
-
-    //// Create the vertex input layout
-    //D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-    //    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    //    { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    //    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    //};
-
-    //struct PipelineStateStream
-    //{
-    //    CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE        pRootSignature;
-    //    CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT          InputLayout;
-    //    CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY    PrimitiveTopologyType;
-    //    CD3DX12_PIPELINE_STATE_STREAM_VS                    VS;
-    //    CD3DX12_PIPELINE_STATE_STREAM_PS                    PS;
-    //    CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT  DSVFormat;
-    //    CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
-    //} pipelineStateStream;
-
-    //D3D12_RT_FORMAT_ARRAY rtvFormats = {};
-    //rtvFormats.NumRenderTargets = 1;
-    //rtvFormats.RTFormats[0]     = DXGI_FORMAT_R8G8B8A8_UNORM;
-
-    //pipelineStateStream.pRootSignature        = m_RootSignature.Get();
-    //pipelineStateStream.InputLayout           = { inputLayout, _countof(inputLayout) };
-    //pipelineStateStream.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    //pipelineStateStream.VS                    = CD3DX12_SHADER_BYTECODE(vertexShaderBlob.Get());
-    //pipelineStateStream.PS                    = CD3DX12_SHADER_BYTECODE(pixelShaderBlob.Get());
-    //pipelineStateStream.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
-    //pipelineStateStream.RTVFormats            = rtvFormats;
-
-    //D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
-    //ThrowIfFailed(device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_PipelineState)));
-
-    //auto fenceValue = commandQueue->ExecuteCommandList(commandList);
-    //commandQueue->WaitForFenceValue(fenceValue);
-
-    //m_ContentLoaded = true;
-
-    //// Resize/Create the depth buffer.
-    //ResizeDepthBuffer(GetClientWidth(), GetClientHeight());
 
     return true;
 }
@@ -927,34 +903,36 @@ void Tutorial2::OnRender()
     }
 
     // ======== Draw model ==========
-    // Pipeline setup
- //   commandList->SetPipelineState(m_PipelineState.Get());
- //   commandList->SetGraphicsRootSignature(m_RootSignature.Get());
+    {
+        // Pipeline setup
+        commandList->SetPipelineState(m_PipelineState.Get());
+        commandList->SetGraphicsRootSignature(m_RootSignature.Get());
 
- //   // Bind descriptor heap
- //   ID3D12DescriptorHeap* descHeaps[] = { m_CBV_SRV_Heap.Get() };
-	//commandList->SetDescriptorHeaps(_countof(descHeaps), descHeaps);
- //   
- //   // @rootparam 0: CBV (slot 0 of heap)
- //   commandList->SetGraphicsRootDescriptorTable(0, m_CBV_SRV_Heap->GetGPUDescriptorHandleForHeapStart());
- //   
- //   // @rootparam 1: SRV texture (slot 1 of heap)
-	//UINT srvDescriptorSize = Application::Get().GetDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
- //   CD3DX12_GPU_DESCRIPTOR_HANDLE srvGpuHandle(m_CBV_SRV_Heap->GetGPUDescriptorHandleForHeapStart(), 1, srvDescriptorSize);
- //   commandList->SetGraphicsRootDescriptorTable(1, srvGpuHandle);
+        // Bind descriptor heap
+        ID3D12DescriptorHeap* descHeaps[] = { m_CBV_SRV_Heap.Get() };
+        commandList->SetDescriptorHeaps(_countof(descHeaps), descHeaps);
 
-	//// @rootparam 2 & 3: inline constants
- //   commandList->SetGraphicsRoot32BitConstants(2, sizeof(DirectionalLight) / 4, &g_DirLight, 0);
- //   commandList->SetGraphicsRoot32BitConstants(3, sizeof(Material) / 4, &g_ModelMat, 0);
+        // @rootparam 0: CBV (slot 0 of heap)
+        commandList->SetGraphicsRootDescriptorTable(0, m_CBV_SRV_Heap->GetGPUDescriptorHandleForHeapStart());
 
- //   commandList->RSSetViewports(1, &m_Viewport);
- //   commandList->RSSetScissorRects(1, &m_ScissorRect);
- //   commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
- //   commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
- //   commandList->IASetVertexBuffers(0, 1, &m_VertexBufferView);
- //   commandList->IASetIndexBuffer(&m_IndexBufferView);
+        // @rootparam 1: SRV texture (slot 1 of heap)
+        UINT srvDescriptorSize = Application::Get().GetDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srvGpuHandle(m_CBV_SRV_Heap->GetGPUDescriptorHandleForHeapStart(), 1, srvDescriptorSize);
+        commandList->SetGraphicsRootDescriptorTable(1, srvGpuHandle);
 
- //   commandList->DrawIndexedInstanced(g_Indices.size(), 1, 0, 0, 0);
+        // @rootparam 2 & 3: inline constants
+        commandList->SetGraphicsRoot32BitConstants(2, sizeof(DirectionalLight) / 4, &g_DirLight, 0);
+        commandList->SetGraphicsRoot32BitConstants(3, sizeof(Material) / 4, &g_ModelMat, 0);
+
+        commandList->RSSetViewports(1, &m_Viewport);
+        commandList->RSSetScissorRects(1, &m_ScissorRect);
+        commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        commandList->IASetVertexBuffers(0, 1, &m_VertexBufferView);
+        commandList->IASetIndexBuffer(&m_IndexBufferView);
+
+        commandList->DrawIndexedInstanced(g_Indices.size(), 1, 0, 0, 0);
+    }
 
     // Present
     {

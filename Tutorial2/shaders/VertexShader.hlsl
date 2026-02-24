@@ -3,13 +3,12 @@ cbuffer SceneCB : register(b0)
     matrix ModelMatrix;
     matrix ModelViewMatrix;
     matrix InverseTransposeModelMatrix;
-    matrix ModelViewProjectionMatrix;
-
-    float3 CameraPosition;
-    float _pad1; // to align to 16 bytes
-    
+    matrix ModelViewProjectionMatrix;    
     matrix ViewMatrix;
     matrix ProjectionMatrix;
+    
+    float3 CameraPosition;
+    float _pad1; // to align to 16 bytes
 };
 
 struct VertexPosNormTex
